@@ -43,7 +43,7 @@
     <string name="notification_channel_name">전송 상태</string>
     <string name="notification_channel_description">전송 중 표시되는 고정 알림</string>
     <string name="notification_title">%1$s(으)로 전송 중</string>
-    <string name="notification_text">탭하여 Kite로 돌아가기</string>
+    <string name="notification_text">탭하여 VaneGlider로 돌아가기</string>
     <string name="notification_stop">중지</string>
 
     <string name="permission_notification_rationale">전송 상태를 표시하려면 알림 권한이 필요합니다.</string>
@@ -72,7 +72,7 @@
     <string name="settings_about_version">버전</string>
     <string name="settings_about_github">GitHub</string>
     <string name="settings_licenses">오픈 소스 라이선스</string>
-    <string name="licenses_note">Kite는 GNU LGPL-3.0으로 배포되며 다음 오픈 소스 프로젝트를 기반으로 합니다:</string>
+    <string name="licenses_note">VaneGlider는 GNU LGPL-3.0으로 배포되며 다음 오픈 소스 프로젝트를 기반으로 합니다:</string>
 
     <!-- AirPlay 1 (audio-only) and password protection -->
     <string name="receiver_audio_only">오디오 전용</string>

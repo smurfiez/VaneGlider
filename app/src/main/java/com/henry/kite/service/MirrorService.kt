@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.media.AudioManager
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -72,6 +73,9 @@ class MirrorService : Service() {
     private var raopSession: RaopSession? = null
     private var airPlay2Session: AirPlay2Session? = null
 
+    /** Media volume before the cast muted it; -1 when we did not mute. */
+    private var mediaVolumeBeforeMute: Int = -1
+
     /** Encoded dimensions right now; rotation swaps them mid-session. */
     @Volatile
     private var liveWidth: Int = 0
@@ -83,6 +87,9 @@ class MirrorService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // A previous run may have muted the phone and been killed before it
+        // could put the level back.
+        if (audioPrefs().getInt(PREF_MUTED_VOLUME, -1) > 0) restoreLocalAudio()
         // Keep the Quick Settings tile in step with the session state.
         MirrorController.onPublish = { KiteTileService.requestRefresh(this) }
     }
@@ -213,9 +220,12 @@ class MirrorService : Service() {
         if (!hasAudioPermission()) {
             Log.w(TAG, "Audio-only cast without RECORD_AUDIO; failing early")
             MirrorController.publish(SessionState.Failed(receiver, getString(R.string.error_audio_permission_needed)))
+            cleanupSession()
             stopSelf()
             return
         }
+        // Audio-only means the stream is the cast: nothing should play locally.
+        muteLocalAudio()
         if (receiver.features.supportsBufferedAudio || receiver.features.supportsPtp) {
             runAirPlay2AudioSession(receiver, mediaProjection)
         } else {
@@ -443,7 +453,7 @@ class MirrorService : Service() {
                 }
 
                 mirrorSession.modernAudio != null || mirrorSession.audioStream != null ->
-                    AlacAudioEncoder(projection = mediaProjection)
+                    AlacAudioEncoder(projection = mediaProjection).also { muteLocalAudio() }
 
                 else -> null
             }
@@ -540,6 +550,39 @@ class MirrorService : Service() {
         }
     }
 
+    /**
+     * Playback capture taps the audio without owning it, so the phone keeps
+     * playing everything the receiver is also getting. Silence the media
+     * stream for the duration of the cast.
+     *
+     * The pre-cast level is persisted because a crash, a force-stop or an OEM
+     * kill never reaches [cleanupSession]; the next start restores it.
+     */
+    private fun muteLocalAudio() {
+        val audio = getSystemService(AudioManager::class.java) ?: return
+        if (mediaVolumeBeforeMute >= 0 || audio.isVolumeFixed) return
+        val current = runCatching { audio.getStreamVolume(AudioManager.STREAM_MUSIC) }.getOrNull()
+        if (current == null || current == 0) return
+        mediaVolumeBeforeMute = current
+        audioPrefs().edit().putInt(PREF_MUTED_VOLUME, current).apply()
+        runCatching { audio.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0) }
+            .onFailure { Log.w(TAG, "Could not mute local audio", it) }
+    }
+
+    private fun restoreLocalAudio() {
+        val audio = getSystemService(AudioManager::class.java) ?: return
+        val saved = maxOf(mediaVolumeBeforeMute, audioPrefs().getInt(PREF_MUTED_VOLUME, -1))
+        mediaVolumeBeforeMute = -1
+        audioPrefs().edit().remove(PREF_MUTED_VOLUME).apply()
+        if (saved <= 0) return
+        // Anything but 0 means the user adjusted it during the cast; leave it.
+        if (runCatching { audio.getStreamVolume(AudioManager.STREAM_MUSIC) }.getOrNull() != 0) return
+        runCatching { audio.setStreamVolume(AudioManager.STREAM_MUSIC, saved, 0) }
+            .onFailure { Log.w(TAG, "Could not restore local audio", it) }
+    }
+
+    private fun audioPrefs() = getSharedPreferences(PREFS_AUDIO, MODE_PRIVATE)
+
     private fun stopMirroring() {
         sessionJob?.cancel()
         // Session teardown closes sockets that may be mid-write on a dead TCP
@@ -567,6 +610,7 @@ class MirrorService : Service() {
         raopSession = null
         airPlay2Session = null
         projection = null
+        restoreLocalAudio()
         releaseWakeLock()
         // Undo the Wi-Fi process binding so normal (VPN-inclusive) routing
         // resumes when we are not casting.
@@ -608,6 +652,12 @@ class MirrorService : Service() {
 
         is SessionState.StreamingAudio -> rateText(state.kilobitsPerSecond)
 
+        // The live detail lives in the notification, so the transition states
+        // get a line there too instead of only "Tap to return to Kite".
+        is SessionState.SettingUp -> getString(R.string.state_setting_up)
+
+        is SessionState.Connecting -> getString(R.string.state_connecting)
+
         else -> null
     }
 
@@ -632,10 +682,15 @@ class MirrorService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+        val detail = metrics ?: getString(R.string.notification_text)
         return NotificationCompat.Builder(this, KiteApplication.CHANNEL_ID_MIRRORING)
-            .setSmallIcon(android.R.drawable.stat_sys_upload)
+            .setSmallIcon(R.drawable.ic_tile_cast)
+            .setColor(getColor(R.color.kite_primary))
             .setContentTitle(getString(R.string.notification_title, receiverName))
-            .setContentText(metrics ?: getString(R.string.notification_text))
+            .setContentText(detail)
+            // The notification is where the live detail lives: expanded it
+            // keeps the bit rate readable instead of trimming it to one line.
+            .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
             .setContentIntent(contentIntent)
             .addAction(0, getString(R.string.notification_stop), stopIntent)
             .setOngoing(true)
@@ -699,6 +754,8 @@ class MirrorService : Service() {
         private const val TAG = "MirrorService"
         private const val NOTIFICATION_ID = 1001
         private const val WAKE_LOCK_TAG = "kite:mirroring"
+        private const val PREFS_AUDIO = "kite_audio"
+        private const val PREF_MUTED_VOLUME = "muted_volume"
         private const val WAKE_LOCK_TIMEOUT_MS = 4 * 60 * 60 * 1000L
         private const val STATS_INTERVAL_MS = 1_000L
         private const val FRAME_BUFFER = 8

@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.combinedClickable
@@ -20,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.outlined.Cast
+import androidx.compose.material.icons.outlined.CastConnected
 import androidx.compose.material.icons.outlined.LaptopMac
 import androidx.compose.material.icons.outlined.Speaker
 import androidx.compose.material.icons.outlined.Tv
@@ -38,7 +40,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.henry.kite.R
@@ -64,6 +65,8 @@ fun ReceiverCard(
     onLongClick: (() -> Unit)? = null,
     /** false drops the leading avatar; the Quick Settings picker keeps rows compact. */
     showAvatar: Boolean = true,
+    /** The receiver this session is connected to right now. */
+    isActive: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -92,8 +95,13 @@ fun ReceiverCard(
     Card(
         shape = RoundedCornerShape(cornerRadius),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            containerColor = if (isActive) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            },
         ),
+        border = if (isActive) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
         modifier = modifier
             .fillMaxWidth()
             .scale(pressScale)
@@ -110,50 +118,64 @@ fun ReceiverCard(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
         ) {
             if (showAvatar) {
-                ReceiverAvatar(receiver = receiver, isPaired = isPaired)
+                ReceiverAvatar(receiver = receiver, isPaired = isPaired, isActive = isActive)
 
-                Spacer(Modifier.size(16.dp))
+                Spacer(Modifier.size(14.dp))
             }
 
             Column(Modifier.weight(1f)) {
                 Text(
                     text = receiver.name,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = if (isActive) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.size(2.dp))
                 Text(
                     text = receiver.subtitle(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isActive) {
+                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
 
-            if (isPaired) {
+            if (isPaired && !isActive) {
                 Icon(
                     imageVector = Icons.Filled.CheckCircle,
                     contentDescription = stringResource(R.string.receiver_paired),
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.size(8.dp))
             }
 
             Icon(
-                imageVector = Icons.Outlined.Cast,
-                contentDescription = null,
-                tint = if (enabled) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                imageVector = if (isActive) {
+                    Icons.Outlined.CastConnected
                 } else {
-                    MaterialTheme.colorScheme.outlineVariant
+                    Icons.Outlined.Cast
+                },
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = when {
+                    isActive -> MaterialTheme.colorScheme.primary
+
+                    // Disabled rows must not rely on hue alone to read as
+                    // unavailable; the status panel's text says what is busy.
+                    else -> MaterialTheme.colorScheme.outline
                 },
             )
         }
@@ -161,26 +183,26 @@ fun ReceiverCard(
 }
 
 @Composable
-private fun ReceiverAvatar(receiver: AirPlayReceiver, isPaired: Boolean) {
+private fun ReceiverAvatar(receiver: AirPlayReceiver, isPaired: Boolean, isActive: Boolean) {
     Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = if (isPaired) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHighest
+        shape = RoundedCornerShape(14.dp),
+        color = when {
+            isActive -> MaterialTheme.colorScheme.primary
+            isPaired -> MaterialTheme.colorScheme.primaryContainer
+            else -> MaterialTheme.colorScheme.surfaceContainerHighest
         },
-        modifier = Modifier.size(48.dp),
+        modifier = Modifier.size(44.dp),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 imageVector = receiverIcon(receiver),
                 contentDescription = null,
-                tint = if (isPaired) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                tint = when {
+                    isActive -> MaterialTheme.colorScheme.onPrimary
+                    isPaired -> MaterialTheme.colorScheme.onPrimaryContainer
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(22.dp),
             )
         }
     }

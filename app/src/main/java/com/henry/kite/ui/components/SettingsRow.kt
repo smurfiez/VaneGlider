@@ -30,11 +30,10 @@ fun SettingsSection(title: String, modifier: Modifier = Modifier, content: @Comp
             text = title,
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 8.dp),
+            modifier = Modifier.padding(start = 0.dp),
         )
         Surface(
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -65,7 +64,7 @@ fun SettingsRow(
     val rowModifier = Modifier
         .fillMaxWidth()
         .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-        .padding(horizontal = 20.dp, vertical = 12.dp)
+        .padding(horizontal = 16.dp, vertical = 12.dp)
 
     Column(rowModifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {

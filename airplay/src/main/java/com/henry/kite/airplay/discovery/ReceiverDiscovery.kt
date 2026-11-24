@@ -131,6 +131,9 @@ class ReceiverDiscovery(private val context: Context) {
          * know the endpoint also offers audio-only casting.
          */
         val raopServiceNames = mutableSetOf<String>()
+
+        /** RTSP control port per receiver host, learned from `_raop`. */
+        val raopPorts = mutableMapOf<String, Int>()
         var jmdns: JmDNS? = null
 
         fun publish() {
@@ -172,20 +175,65 @@ class ReceiverDiscovery(private val context: Context) {
 
             override fun serviceRemoved(event: ServiceEvent) {
                 Log.i(TAG, "Service removed: ${event.name}")
+                val receiver = event.info.toReceiver()
+                val host = receiver?.address?.hostAddress
                 if (event.type.startsWith("_raop.")) {
                     raopServiceNames.remove(event.name)
+                    // The RTSP port leaves with the advertisement; only the
+                    // audio-only row goes with it, a merged mirroring row stays.
+                    if (host != null) {
+                        raopPorts.remove(host)
+                        found.entries.removeAll {
+                            it.value.isAudioOnly && it.value.address.hostAddress == host
+                        }
+                    }
+                } else {
+                    // This device is gone. Its mirroring row may live on the
+                    // RAOP port after the re-key, so match by identity, not key.
+                    val deviceId = receiver?.deviceId
+                    if (host != null && deviceId != null) {
+                        found.entries.removeAll {
+                            it.value.deviceId == deviceId && it.value.address.hostAddress == host
+                        }
+                    }
+                    receiver?.let { found.remove("${it.address.hostAddress}:${it.port}") }
                 }
-                val receiver = event.info.toReceiver()
-                val key = receiver?.let { "${it.address.hostAddress}:${it.port}" } ?: event.name
-                if (found.remove(key) != null) publish()
+                publish()
             }
 
             override fun serviceResolved(event: ServiceEvent) {
-                val receiver = event.info.toReceiver()
-                if (receiver == null) {
+                val resolved = event.info.toReceiver()
+                if (resolved == null) {
                     Log.w(TAG, "Resolved ${event.name} but no usable IPv4 address; skipping")
                     return
                 }
+                // `_raop` carries the AirPlay 1 RTSP control server, and some
+                // receivers publish only a stub on the `_airplay` port (XGIMI:
+                // 7001 answers every method with an empty 200, the real server
+                // is 7002). Remember that port per host and re-key a mirroring
+                // entry that resolved before it — mDNS order is not guaranteed,
+                // and these receivers randomise the `<mac>@` instance prefix,
+                // so the host is the only stable tie between the two records.
+                val host = resolved.address.hostAddress
+                // `ft` is the RAOP name for `features`; read it here rather than
+                // merging it into every receiver's mask, which would flip bits
+                // for the Macs and Apple TVs that also advertise both services.
+                val raopFeatures = FeatureFlags.parse(resolved.txtRecords["ft"] ?: resolved.txtRecords["features"])
+                if (resolved.isAudioOnly && raopFeatures.supportsScreenMirroring) {
+                    raopPorts[host] = resolved.port
+                    Log.i(TAG, "RTSP endpoint for $host: _raop port ${resolved.port}")
+                    found.keys.toList().forEach { key ->
+                        val entry = found[key] ?: return@forEach
+                        if (entry.isMirroringRowOf(host, resolved.deviceId)) {
+                            found.remove(key)
+                            found["${entry.address.hostAddress}:${resolved.port}"] =
+                                entry.withRtspPort(resolved.port)
+                        }
+                    }
+                }
+                val receiver = resolved.withRtspPort(
+                    if (resolved.isAudioOnly) null else raopPorts[host],
+                )
                 // JmDNS re-resolves the same service repeatedly, and the
                 // address set it reports drifts between a link-local IPv6 and
                 // the LAN IPv4. Three guards keep one physical device as one
@@ -264,6 +312,7 @@ class ReceiverDiscovery(private val context: Context) {
             }.onFailure { Log.w(TAG, "Error shutting down JmDNS", it) }
             runCatching { lock.release() }
             raopServiceNames.clear()
+            raopPorts.clear()
         }
     }.conflate()
 
@@ -322,6 +371,25 @@ private fun ServiceInfo.toReceiver(): AirPlayReceiver? {
         txtRecords = txt,
     )
 }
+
+/**
+ * The endpoint a session must connect to. `_raop` carries the AirPlay 1 RTSP
+ * server, so when a device advertises its two services on different ports the
+ * RAOP one wins; receivers that share a port (every Mac, UxPlay) are unchanged.
+ */
+internal fun AirPlayReceiver.withRtspPort(raopPort: Int?): AirPlayReceiver =
+    if (isAudioOnly || raopPort == null || raopPort == port) {
+        this
+    } else {
+        copy(port = raopPort, hasAudioOnlyService = true)
+    }
+
+/**
+ * True when this is the mirroring row of the device that just advertised
+ * `_raop` — same host, and the same `deviceid` when the RAOP record carries one.
+ */
+private fun AirPlayReceiver.isMirroringRowOf(host: String, deviceId: String?): Boolean =
+    !isAudioOnly && address.hostAddress == host && (deviceId == null || this.deviceId == deviceId)
 
 /** JmDNS needs the interface address to bind to; guessing wrong means no responses. */
 private fun WifiManager.localInet4Address(): InetAddress? {

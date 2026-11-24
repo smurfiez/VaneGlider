@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">Kite</string>
+    <string name="app_name" translatable="false">VaneGlider</string>
 
     <string name="discovery_title">Cast to</string>
     <string name="discovery_subtitle">AirPlay receivers on this Wi-Fi network</string>
@@ -51,7 +51,7 @@
     <string name="notification_channel_name">Casting status</string>
     <string name="notification_channel_description">Ongoing notification while casting</string>
     <string name="notification_title">Casting to %1$s</string>
-    <string name="notification_text">Tap to return to Kite</string>
+    <string name="notification_text">Tap to return to VaneGlider</string>
     <string name="notification_stop">Stop</string>
 
     <string name="permission_notification_rationale">Notification permission is needed to show casting status.</string>
@@ -86,7 +86,7 @@
     <string name="settings_about_version">Version</string>
     <string name="settings_about_github">GitHub</string>
     <string name="settings_licenses">Open source licenses</string>
-    <string name="licenses_note">Kite is released under the GNU LGPL-3.0. It is built on these open-source projects:</string>
+    <string name="licenses_note">VaneGlider is released under the GNU LGPL-3.0. It is built on these open-source projects:</string>
 
     <!-- AirPlay 1 (audio-only) and password protection -->
     <string name="receiver_audio_only">Audio only</string>

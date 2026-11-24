@@ -43,7 +43,7 @@
     <string name="notification_channel_name">投放狀態</string>
     <string name="notification_channel_description">投放進行中的常駐通知</string>
     <string name="notification_title">正在投放至 %1$s</string>
-    <string name="notification_text">輕觸即可返回 Kite</string>
+    <string name="notification_text">輕觸即可返回 VaneGlider</string>
     <string name="notification_stop">停止</string>
 
     <string name="permission_notification_rationale">需要通知權限才能顯示投放狀態。</string>
@@ -72,7 +72,7 @@
     <string name="settings_about_version">版本</string>
     <string name="settings_about_github">GitHub</string>
     <string name="settings_licenses">開源授權</string>
-    <string name="licenses_note">Kite 以 GNU LGPL-3.0 發布，並建構於以下開源專案之上：</string>
+    <string name="licenses_note">VaneGlider 以 GNU LGPL-3.0 發布，並建構於以下開源專案之上：</string>
 
     <!-- AirPlay 1 (audio-only) and password protection -->
     <string name="receiver_audio_only">僅音訊</string>

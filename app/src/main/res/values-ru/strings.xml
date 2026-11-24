@@ -43,7 +43,7 @@
     <string name="notification_channel_name">Состояние трансляции</string>
     <string name="notification_channel_description">Постоянное уведомление во время трансляции</string>
     <string name="notification_title">Трансляция на %1$s</string>
-    <string name="notification_text">Нажмите, чтобы вернуться в Kite</string>
+    <string name="notification_text">Нажмите, чтобы вернуться в VaneGlider</string>
     <string name="notification_stop">Остановить</string>
 
     <string name="permission_notification_rationale">Для показа состояния трансляции нужно разрешение на уведомления.</string>
@@ -72,7 +72,7 @@
     <string name="settings_about_version">Версия</string>
     <string name="settings_about_github">GitHub</string>
     <string name="settings_licenses">Лицензии с открытым исходным кодом</string>
-    <string name="licenses_note">Kite распространяется под лицензией GNU LGPL-3.0 и основан на этих проектах с открытым исходным кодом:</string>
+    <string name="licenses_note">VaneGlider распространяется под лицензией GNU LGPL-3.0 и основан на этих проектах с открытым исходным кодом:</string>
 
     <!-- AirPlay 1 (audio-only) and password protection -->
     <string name="receiver_audio_only">Только аудио</string>

@@ -49,7 +49,7 @@
     <string name="notification_channel_name">投射状态</string>
     <string name="notification_channel_description">投射进行中的常驻通知</string>
     <string name="notification_title">正在投射到 %1$s</string>
-    <string name="notification_text">点按返回 Kite</string>
+    <string name="notification_text">点按返回 VaneGlider</string>
     <string name="notification_stop">停止</string>
 
     <string name="permission_notification_rationale">需要通知权限来显示投射状态。</string>
@@ -84,7 +84,7 @@
     <string name="settings_about_version">版本</string>
     <string name="settings_about_github">GitHub</string>
     <string name="settings_licenses">开源许可</string>
-    <string name="licenses_note">Kite 以 GNU LGPL-3.0 发布，基于以下开源项目构建：</string>
+    <string name="licenses_note">VaneGlider 以 GNU LGPL-3.0 发布，基于以下开源项目构建：</string>
 
     <!-- AirPlay 1 (audio-only) and password protection -->
     <string name="receiver_audio_only">仅音频</string>

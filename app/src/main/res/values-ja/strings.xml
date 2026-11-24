@@ -43,7 +43,7 @@
     <string name="notification_channel_name">キャストの状態</string>
     <string name="notification_channel_description">キャスト中に表示される常設通知</string>
     <string name="notification_title">%1$s にキャスト中</string>
-    <string name="notification_text">タップして Kite に戻る</string>
+    <string name="notification_text">タップして VaneGlider に戻る</string>
     <string name="notification_stop">停止</string>
 
     <string name="permission_notification_rationale">キャストの状態を表示するには通知の権限が必要です。</string>
@@ -72,7 +72,7 @@
     <string name="settings_about_version">バージョン</string>
     <string name="settings_about_github">GitHub</string>
     <string name="settings_licenses">オープンソースライセンス</string>
-    <string name="licenses_note">Kite は GNU LGPL-3.0 で公開されており、以下のオープンソースプロジェクトに基づいています：</string>
+    <string name="licenses_note">VaneGlider は GNU LGPL-3.0 で公開されており、以下のオープンソースプロジェクトに基づいています：</string>
 
     <!-- AirPlay 1 (audio-only) and password protection -->
     <string name="receiver_audio_only">オーディオのみ</string>

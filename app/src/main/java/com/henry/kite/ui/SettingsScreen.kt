@@ -16,13 +16,13 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
@@ -70,7 +70,7 @@ fun SettingsScreen(
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
+            TopAppBar(
                 title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -95,8 +95,8 @@ fun SettingsScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(
                         PaddingValues(
-                            start = 20.dp,
-                            end = 20.dp,
+                            start = 16.dp,
+                            end = 16.dp,
                             top = padding.calculateTopPadding() + 8.dp,
                             bottom = padding.calculateBottomPadding() + 32.dp,
                         ),
@@ -151,7 +151,7 @@ fun SettingsScreen(
                     )
                     SettingsRow(
                         title = stringResource(R.string.settings_about_github),
-                        summary = GITHUB_URL,
+                        summary = GITHUB_LABEL,
                         onClick = onOpenGitHub,
                     )
                     SettingsRow(
@@ -250,4 +250,7 @@ private fun Quality.label(): String = stringResource(
 )
 
 /** The project repository, opened from the settings About section. */
-const val GITHUB_URL = "https://github.com/itsHenry35/Kite"
+const val GITHUB_URL = "https://github.com/smurfiez/VaneGlider"
+
+/** Shown in the row; the full URL is too wide for a label + value pair. */
+const val GITHUB_LABEL = "smurfiez/VaneGlider"

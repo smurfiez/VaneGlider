@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,20 +26,15 @@ import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material.icons.outlined.WifiFind
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -49,7 +46,6 @@ import com.henry.kite.ui.components.StatusPanel
 import com.henry.kite.ui.components.receiverItems
 import com.henry.kite.vm.DiscoveryUiState
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiscoveryScreen(
     uiState: DiscoveryUiState,
@@ -60,9 +56,6 @@ fun DiscoveryScreen(
     onStopMirroring: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    val appBarState = rememberTopAppBarState()
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(appBarState)
-
     // Any non-idle, non-failed state means a session is mid-flight.
     val isBusy = sessionState !is SessionState.Idle && sessionState !is SessionState.Failed
 
@@ -77,22 +70,14 @@ fun DiscoveryScreen(
         }
     }
 
+    // The live detail (resolution, frame rate, bit rate) lives in the ongoing
+    // notification; the panel is for what the shade cannot show — errors and
+    // the steps before the stream is up.
+    val showStatusPanel = sessionState !is SessionState.Idle &&
+        sessionState !is SessionState.Mirroring &&
+        sessionState !is SessionState.StreamingAudio
+
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            LargeTopAppBar(
-                title = { Text(stringResource(R.string.discovery_title)) },
-                actions = {
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(
-                            imageVector = Icons.Outlined.Settings,
-                            contentDescription = stringResource(R.string.settings_open),
-                        )
-                    }
-                },
-                scrollBehavior = scrollBehavior,
-            )
-        },
         bottomBar = {
             SessionControls(
                 sessionState = sessionState,
@@ -105,17 +90,46 @@ fun DiscoveryScreen(
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             LazyColumn(
                 contentPadding = PaddingValues(
-                    start = 20.dp,
-                    end = 20.dp,
-                    top = padding.calculateTopPadding() + 8.dp,
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = padding.calculateTopPadding() + 4.dp,
                     bottom = padding.calculateBottomPadding() + 24.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.widthIn(max = 640.dp).fillMaxSize(),
             ) {
                 item {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 4.dp, top = 12.dp, bottom = 10.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.discovery_title),
+                                style = MaterialTheme.typography.displaySmall,
+                                color = MaterialTheme.colorScheme.onBackground,
+                            )
+                            Text(
+                                text = stringResource(R.string.discovery_subtitle),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(
+                                imageVector = Icons.Outlined.Settings,
+                                contentDescription = stringResource(R.string.settings_open),
+                            )
+                        }
+                    }
+                }
+
+                item {
                     AnimatedVisibility(
-                        visible = sessionState !is SessionState.Idle,
+                        visible = showStatusPanel,
                         enter = fadeIn() + expandVertically(
                             spring(
                                 dampingRatio = Spring.DampingRatioLowBouncy,
@@ -131,21 +145,13 @@ fun DiscoveryScreen(
                     }
                 }
 
-                item {
-                    Text(
-                        text = stringResource(R.string.discovery_subtitle),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
-                    )
-                }
-
                 receiverItems(
                     receivers = orderedReceivers,
                     pairedIds = uiState.pairedIds,
                     enabled = !isBusy,
                     onSelect = onStartMirroring,
                     onLongPress = onReceiverLongPress,
+                    activeReceiverId = activeReceiverId,
                 )
 
                 if (uiState.receivers.isEmpty()) {
@@ -222,16 +228,15 @@ private fun SessionControls(sessionState: SessionState, onStopMirroring: () -> U
             Button(
                 onClick = onStopMirroring,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ),
                 modifier = Modifier
                     .widthIn(max = 640.dp)
                     .fillMaxWidth()
-                    .height(56.dp),
+                    .heightIn(min = 56.dp),
             ) {
                 Icon(Icons.Outlined.StopCircle, contentDescription = null)
-                Spacer(Modifier.height(0.dp))
                 Text(
                     text = stringResource(R.string.action_stop),
                     style = MaterialTheme.typography.titleMedium,

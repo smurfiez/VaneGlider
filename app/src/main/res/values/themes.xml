@@ -4,12 +4,23 @@
       Compose owns all theming; this only covers the window before it composes.
       The parent is an AppCompat theme because SettingsActivity extends
       AppCompatActivity to get per-app locale support.
+
+      The values are split into .Base so values-v31 can add the Android 12
+      splash attributes without duplicating every item.
     -->
-    <style name="Theme.Kite" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <style name="Theme.Kite.Base" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowBackground">?android:attr/colorBackground</item>
+        <item name="android:windowBackground">@color/kite_background</item>
+        <item name="android:windowLightStatusBar">@bool/kite_light_status_bar</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="colorPrimary">@color/kite_primary</item>
+        <item name="colorPrimaryDark">@color/kite_background</item>
+        <item name="colorAccent">@color/kite_primary</item>
     </style>
+
+    <style name="Theme.Kite" parent="Theme.Kite.Base" />
 
     <!--
       The Quick Settings tile picker: a floating card over whatever app the

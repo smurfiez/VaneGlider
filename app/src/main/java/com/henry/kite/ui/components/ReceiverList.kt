@@ -16,6 +16,7 @@ import com.henry.kite.airplay.discovery.AirPlayReceiver
  *   audio-only service get it (they are the ones with casting-mode choices).
  * @param showAvatar false in the Quick Settings picker, where the rows stay
  *   compact without the leading avatar.
+ * @param activeReceiverId stableId of the connected receiver, highlighted in place.
  */
 fun LazyListScope.receiverItems(
     receivers: List<AirPlayReceiver>,
@@ -24,6 +25,7 @@ fun LazyListScope.receiverItems(
     onSelect: (AirPlayReceiver) -> Unit,
     onLongPress: ((AirPlayReceiver) -> Unit)? = null,
     showAvatar: Boolean = true,
+    activeReceiverId: String? = null,
 ) {
     items(
         items = receivers,
@@ -49,6 +51,7 @@ fun LazyListScope.receiverItems(
                 null
             },
             showAvatar = showAvatar,
+            isActive = receiver.stableId == activeReceiverId,
         )
     }
 }
