@@ -57,7 +57,7 @@
     <ID>ThrowsCount:PairVerify.kt:PairVerify$private fun verifyReceiver</ID>
     <ID>ThrowsCount:RaopSession.kt:RaopSession$private suspend fun sendAuthorized: RtspResponse</ID>
     <ID>ThrowsCount:RtspClient.kt:RtspClient$private fun readResponse: RtspResponse</ID>
-    <ID>TooManyFunctions:PlayfairCore.kt:com.henry.kite.airplay.session.PlayfairCore.kt</ID>
+    <ID>TooManyFunctions:PlayfairCore.kt:com.smurfiez.vaneglider.airplay.session.PlayfairCore.kt</ID>
     <ID>UtilityClassWithPublicConstructor:Playfair.kt:Playfair</ID>
     <ID>VariableNaming:Garble.kt:var A: Int</ID>
     <ID>VariableNaming:Garble.kt:var B: Int</ID>

@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.henry.kite.airplay"
+    namespace = "com.smurfiez.vaneglider.airplay"
     compileSdk = 37
 
     defaultConfig {

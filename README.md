@@ -72,6 +72,25 @@ third-party receivers, phone-audio muting and a new visual identity.
 
 The Android SDK is located through `ANDROID_HOME` or `local.properties`.
 
+## Releasing
+
+The version lives in `app/build.gradle.kts` (`appVersionName` + `versionCode`);
+a release tag must match it. The release build is signed from environment
+variables, so the key never enters the repo:
+
+```sh
+. ./signing.env          # KITE_KEYSTORE_PATH / KITE_KEYSTORE_PASSWORD /
+                         # KITE_KEY_ALIAS / KITE_KEY_PASSWORD (gitignored)
+./gradlew :app:assembleRelease
+gh release create v2.0.0 app/build/outputs/apk/release/app-release.apk \
+  --title "VaneGlider 2.0.0" --notes-file CHANGELOG.md
+```
+
+Without those variables `assembleRelease` still works, it just leaves the APK
+unsigned. Keep the keystore (`~/.android/vaneglider-release.jks`) backed up: the
+same key is required for every future update, and losing it means users have to
+uninstall to upgrade.
+
 ## Acknowledgements
 
 VaneGlider builds on years of open-source AirPlay work, and on Kite itself.

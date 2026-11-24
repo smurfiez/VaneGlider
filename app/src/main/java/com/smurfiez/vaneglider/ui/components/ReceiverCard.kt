@@ -1,0 +1,226 @@
+package com.smurfiez.vaneglider.ui.components
+
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.outlined.Cast
+import androidx.compose.material.icons.outlined.CastConnected
+import androidx.compose.material.icons.outlined.LaptopMac
+import androidx.compose.material.icons.outlined.Speaker
+import androidx.compose.material.icons.outlined.Tv
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.smurfiez.vaneglider.R
+import com.smurfiez.vaneglider.airplay.discovery.AirPlayReceiver
+import com.smurfiez.vaneglider.airplay.discovery.PairingPath
+
+/**
+ * One receiver in the discovery list.
+ *
+ * The container morphs on press: corners round out and the card shrinks slightly.
+ * Both use a bouncy spring rather than a duration, so an interrupted press
+ * retargets from wherever the animation currently is instead of snapping.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun ReceiverCard(
+    receiver: AirPlayReceiver,
+    isPaired: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** Audio-only cast entry; null means the card has no long-press action. */
+    onLongClick: (() -> Unit)? = null,
+    /** false drops the leading avatar; the Quick Settings picker keeps rows compact. */
+    showAvatar: Boolean = true,
+    /** The receiver this session is connected to right now. */
+    isActive: Boolean = false,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        label = "receiverCardScale",
+    )
+    val cornerRadius by animateDpAsState(
+        targetValue = if (isPressed) 28.dp else 20.dp,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        label = "receiverCardCorner",
+    )
+
+    // combinedClickable instead of Card(onClick): the click handler owns tap
+    // AND long-press on one chain, so a long press cannot also leak a click
+    // (with Card(onClick) plus an outer detectTapGestures both fired, and the
+    // two consent dialogs cancelled each other out).
+    Card(
+        shape = RoundedCornerShape(cornerRadius),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isActive) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            },
+        ),
+        border = if (isActive) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
+        modifier = modifier
+            .fillMaxWidth()
+            .scale(pressScale)
+            // Clip before the click handler so the ripple follows the card's
+            // rounded corners instead of drawing as a rectangle over them.
+            .clip(RoundedCornerShape(cornerRadius))
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                enabled = enabled,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+        ) {
+            if (showAvatar) {
+                ReceiverAvatar(receiver = receiver, isPaired = isPaired, isActive = isActive)
+
+                Spacer(Modifier.size(14.dp))
+            }
+
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = receiver.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (isActive) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.size(2.dp))
+                Text(
+                    text = receiver.subtitle(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isActive) {
+                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            if (isPaired && !isActive) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = stringResource(R.string.receiver_paired),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.size(8.dp))
+            }
+
+            Icon(
+                imageVector = if (isActive) {
+                    Icons.Outlined.CastConnected
+                } else {
+                    Icons.Outlined.Cast
+                },
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = when {
+                    isActive -> MaterialTheme.colorScheme.primary
+
+                    // Disabled rows must not rely on hue alone to read as
+                    // unavailable; the status panel's text says what is busy.
+                    else -> MaterialTheme.colorScheme.outline
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReceiverAvatar(receiver: AirPlayReceiver, isPaired: Boolean, isActive: Boolean) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = when {
+            isActive -> MaterialTheme.colorScheme.primary
+            isPaired -> MaterialTheme.colorScheme.primaryContainer
+            else -> MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+        modifier = Modifier.size(44.dp),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = receiverIcon(receiver),
+                contentDescription = null,
+                tint = when {
+                    isActive -> MaterialTheme.colorScheme.onPrimary
+                    isPaired -> MaterialTheme.colorScheme.onPrimaryContainer
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.size(22.dp),
+            )
+        }
+    }
+}
+
+/** Best-fit glyph from the advertised model: Macs read as laptops, everything
+ *  else that mirrors reads as the generic receiver screen. */
+private fun receiverIcon(receiver: AirPlayReceiver): ImageVector = when {
+    receiver.isAudioOnly -> Icons.Outlined.Speaker
+    receiver.model?.startsWith("Mac") == true -> Icons.Outlined.LaptopMac
+    else -> Icons.Outlined.Tv
+}
+
+/** Model plus whatever caveat matters most for this receiver. */
+@Composable
+private fun AirPlayReceiver.subtitle(): String = when {
+    isAudioOnly -> stringResource(R.string.receiver_audio_only)
+    !supportsMirroring -> stringResource(R.string.receiver_no_mirroring)
+    pairingPath == PairingPath.LEGACY -> stringResource(R.string.receiver_legacy_pairing)
+    else -> displayModel
+}

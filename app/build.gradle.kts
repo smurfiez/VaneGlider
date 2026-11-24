@@ -5,17 +5,17 @@ plugins {
 }
 
 /** The one source of truth for the app version; release tags must match it. */
-val appVersionName = "1.0.0"
+val appVersionName = "2.0.0"
 
 android {
-    namespace = "com.henry.kite"
+    namespace = "com.smurfiez.vaneglider"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.henry.kite"
+        applicationId = "com.smurfiez.vaneglider"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
+        versionCode = 2
         versionName = appVersionName
     }
 

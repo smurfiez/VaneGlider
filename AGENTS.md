@@ -2,7 +2,7 @@
 
 ## Project Context
 
-Kite (`com.henry.kite`) is an Android AirPlay **sender**: it mirrors the
+Kite (`com.smurfiez.vaneglider`) is an Android AirPlay **sender**: it mirrors the
 phone's screen — and plays its audio — on AirPlay receivers (Macs, Apple TVs,
 open receivers like UxPlay). It is not a receiver.
 
@@ -24,7 +24,7 @@ Go function they mirror — keep it that way.
 ```
 /
 ├── airplay/                      # Protocol module — no Android UI dependencies
-│   └── src/main/java/com/henry/kite/airplay/
+│   └── src/main/java/com/smurfiez/vaneglider/airplay/
 │       ├── crypto/               # ChaCha20-Poly1305 (both layouts), HKDF-SHA512, SRP-6a
 │       ├── discovery/            # JmDNS + BLE beacon discovery, feature flags
 │       ├── pairing/              # HAP pair-setup / pair-verify, TLV8, legacy pairing
@@ -45,7 +45,7 @@ Go function they mirror — keep it that way.
 ```sh
 ./gradlew :app:assembleDebug     # build the APK
 ./gradlew test detekt            # all JVM unit tests + static analysis
-./gradlew :airplay:testDebugUnitTest --tests "com.henry.kite.airplay.crypto.*"
+./gradlew :airplay:testDebugUnitTest --tests "com.smurfiez.vaneglider.airplay.crypto.*"
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 

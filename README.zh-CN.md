@@ -61,6 +61,23 @@ AirPlay 接收端。
 
 Android SDK 通过 `ANDROID_HOME` 或 `local.properties` 指定。
 
+## 发布
+
+版本号在 `app/build.gradle.kts`（`appVersionName` 与 `versionCode`），发布标签
+需要与之对应。Release 包通过环境变量签名，密钥不会进入仓库：
+
+```sh
+. ./signing.env          # KITE_KEYSTORE_PATH / KITE_KEYSTORE_PASSWORD /
+                         # KITE_KEY_ALIAS / KITE_KEY_PASSWORD（已在 .gitignore）
+./gradlew :app:assembleRelease
+gh release create v2.0.0 app/build/outputs/apk/release/app-release.apk \
+  --title "VaneGlider 2.0.0" --notes-file CHANGELOG.md
+```
+
+没有这些变量时 `assembleRelease` 仍可构建，只是包未签名。请备份
+`~/.android/vaneglider-release.jks`：后续更新必须用同一密钥，丢失后用户只能
+卸载重装才能升级。
+
 ## 致谢
 
 VaneGlider 建立在多年开源 AirPlay 工作之上，也建立在 Kite 之上。感谢：
