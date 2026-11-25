@@ -494,7 +494,10 @@ class AirPlay2AudioStream(
         // DSCP EF / WMM voice: audio is the latency-critical half of a cast.
         runCatching { it.trafficClass = TRAFFIC_CLASS_EF }
     }
-    private val cipherKey = cipherKey.copyOf()
+    private val sealer = ChaChaPolyCipher.Sealer(cipherKey.copyOf())
+    private val nonce = ByteArray(ChaChaPolyCipher.NONCE_LEN)
+    private val pcmBe = ByteArray(FRAME_BYTES)
+    private val dataPacket = DatagramPacket(ByteArray(0), 0, address, port)
     private val seq = AtomicInteger(Random.nextInt(SEQ_SPACE))
 
     /** The randomized sequence the stream starts at, echoed in FLUSH's RTP-Info. */
@@ -537,34 +540,26 @@ class AirPlay2AudioStream(
         val s = seq.getAndIncrement() and 0xFFFF
         val counter = outCounter.getAndIncrement()
 
-        val header = ByteArray(RTP_HEADER_BYTES)
-        header[0] = 0x80.toByte()
-        header[1] = 0x60.toByte()
-        header[2] = (s ushr 8).toByte()
-        header[3] = s.toByte()
-        writeInt(header, 4, timestamp.toInt())
-        writeInt(header, 8, ssrc)
+        val packet = ByteArray(RTP_HEADER_BYTES + FRAME_BYTES + ChaChaPolyCipher.TAG_LEN + NONCE_TAIL_BYTES)
+        packet[0] = 0x80.toByte()
+        packet[1] = 0x60.toByte()
+        packet[2] = (s ushr 8).toByte()
+        packet[3] = s.toByte()
+        writeInt(packet, 4, timestamp.toInt())
+        writeInt(packet, 8, ssrc)
 
         // L16 is big-endian on the wire; AudioRecord gives little-endian.
-        val payload = ByteArray(frame.size)
         for (i in 0 until frame.size step 2) {
-            payload[i] = frame[i + 1]
-            payload[i + 1] = frame[i]
+            pcmBe[i] = frame[i + 1]
+            pcmBe[i + 1] = frame[i]
         }
 
-        val sealed = ChaChaPolyCipher.seal(
-            key = cipherKey,
-            nonce = ChaChaPolyCipher.nonce(counter),
-            plaintext = payload,
-            aad = header.copyOfRange(4, RTP_HEADER_BYTES),
-        )
+        writeLongLE(nonce, 4, counter)
+        val sealedLen = sealer.seal(nonce, packet, 4, RTP_HEADER_BYTES - 4, pcmBe, packet, RTP_HEADER_BYTES)
+        writeLongLE(packet, RTP_HEADER_BYTES + sealedLen, counter)
 
-        val packet = ByteArray(RTP_HEADER_BYTES + sealed.size + NONCE_TAIL_BYTES)
-        header.copyInto(packet)
-        sealed.copyInto(packet, RTP_HEADER_BYTES)
-        writeLongLE(packet, RTP_HEADER_BYTES + sealed.size, counter)
-
-        socket.send(DatagramPacket(packet, packet.size, InetSocketAddress(address, port)))
+        dataPacket.setData(packet, 0, packet.size)
+        socket.send(dataPacket)
         bytesCounter.addAndGet(packet.size.toLong())
         synchronized(resendLock) {
             resendCache.addLast(packet)

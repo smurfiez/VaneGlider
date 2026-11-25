@@ -54,6 +54,8 @@ class AudioStream(
     /** Wire packets by sequence number, for answering retransmit requests. */
     private val resendCache = LinkedHashMap<Int, ByteArray>()
 
+    private val dataPacket = DatagramPacket(ByteArray(0), 0, address, port)
+
     private val bytesSent = AtomicLong(0)
     private val packetsSent = AtomicLong(0)
 
@@ -154,6 +156,7 @@ class AudioStream(
             sequenceNumber = sequenceNumber,
             packet = AudioPacket.packet(sequenceNumber, rtpTimestamp, wirePayload),
         )
+        cacheForResend(outgoing.sequenceNumber, outgoing.packet)
 
         sequenceNumber = (sequenceNumber + 1) and 0xFFFF
         rtpTimestamp += samplesPerFrame
@@ -167,9 +170,9 @@ class AudioStream(
 
     private fun transmit(frame: TimedFrame) {
         val channel = socket ?: throw IllegalStateException("Audio channel is not open")
-        cacheForResend(frame.sequenceNumber, frame.packet)
         runCatching {
-            channel.send(DatagramPacket(frame.packet, frame.packet.size, address, port))
+            dataPacket.setData(frame.packet, 0, frame.packet.size)
+            channel.send(dataPacket)
         }.onSuccess {
             bytesSent.addAndGet(frame.packet.size.toLong())
             packetsSent.incrementAndGet()

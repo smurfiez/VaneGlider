@@ -24,9 +24,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import com.smurfiez.vaneglider.VaneGliderApplication
 import com.smurfiez.vaneglider.MainActivity
 import com.smurfiez.vaneglider.R
+import com.smurfiez.vaneglider.VaneGliderApplication
 import com.smurfiez.vaneglider.airplay.discovery.AirPlayReceiver
 import com.smurfiez.vaneglider.airplay.discovery.PairingPath
 import com.smurfiez.vaneglider.airplay.discovery.WifiNetworkResolver
@@ -43,15 +43,18 @@ import com.smurfiez.vaneglider.airplay.session.SessionState
 import com.smurfiez.vaneglider.capture.AlacAudioEncoder
 import com.smurfiez.vaneglider.capture.AudioFrameSource
 import com.smurfiez.vaneglider.capture.AudioPcmSource
+import com.smurfiez.vaneglider.capture.EncodedFrame
 import com.smurfiez.vaneglider.capture.ScreenEncoder
 import com.smurfiez.vaneglider.capture.VideoFormat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.isActive
@@ -272,6 +275,7 @@ class MirrorService : Service() {
         airPlay2Session = airPlay2
 
         var audioJob: Job? = null
+        val audioSendDispatcher = newSendDispatcher("vane-audio-send", Process.THREAD_PRIORITY_URGENT_AUDIO)
         try {
             MirrorController.publish(SessionState.Connecting(receiver))
             val stream = airPlay2.connect { MirrorController.requestPin(receiver) }
@@ -281,7 +285,7 @@ class MirrorService : Service() {
             // The SETUP declares ALAC (ct=2), so the pump must feed ALAC frames.
             val alac = AlacAudioEncoder(projection = mediaProjection)
             audioEncoder = alac
-            audioJob = scope.launch {
+            audioJob = scope.launch(audioSendDispatcher) {
                 try {
                     alac.frames().collect { frame ->
                         if (!frame.isCodecConfig) stream.send(frame.data)
@@ -309,6 +313,8 @@ class MirrorService : Service() {
         } finally {
             audioJob?.cancel()
             cleanupSession()
+            withContext(NonCancellable) { audioJob?.cancelAndJoin() }
+            runCatching { audioSendDispatcher.close() }
             stopSelf()
         }
     }
@@ -321,6 +327,7 @@ class MirrorService : Service() {
 
         var pcmSource: AudioPcmSource? = null
         var audioJob: Job? = null
+        val audioSendDispatcher = newSendDispatcher("vane-audio-send", Process.THREAD_PRIORITY_URGENT_AUDIO)
         try {
             // connect() asks the UI for a password via the provider whenever the
             // receiver 401s; PasswordRequiredException means the user dismissed.
@@ -341,7 +348,7 @@ class MirrorService : Service() {
                 chunkBytes = RaopAudioStream.FRAME_BYTES,
             )
             pcmSource = pcm
-            audioJob = scope.launch {
+            audioJob = scope.launch(audioSendDispatcher) {
                 try {
                     pcm.frames().collect { chunk -> stream.send(chunk) }
                 } catch (e: Exception) {
@@ -368,6 +375,8 @@ class MirrorService : Service() {
             audioJob?.cancel()
             runCatching { pcmSource?.close() }
             cleanupSession()
+            withContext(NonCancellable) { audioJob?.cancelAndJoin() }
+            runCatching { audioSendDispatcher.close() }
             stopSelf()
         }
     }
@@ -431,11 +440,12 @@ class MirrorService : Service() {
         }
 
         // Mirror the session's own state out to the UI.
-        scope.launch {
+        val stateJob = scope.launch {
             mirrorSession.state.collect { MirrorController.publish(it) }
         }
 
         var audioJob: Job? = null
+        var tickerJob: Job? = null
         // Per-session send threads: created before the try so the finally can
         // always close them, and owned by this call rather than by a field a
         // concurrent cleanupSession could shut down under a newer session.
@@ -518,12 +528,13 @@ class MirrorService : Service() {
             // the controller, and keeps sending slices off the air until the
             // requested IDR lands.
             val droppedFrames = AtomicLong(0)
+            val droppedUpToPtsUs = AtomicLong(Long.MIN_VALUE)
             val awaitingKeyFrame = AtomicBoolean(false)
             val keyFrameGateOpenedAt = AtomicLong(0)
 
             // One ticker, two cadences: the bitrate controller wants a 500 ms
             // window, the [TX] line and the notification update once a second.
-            scope.launch {
+            tickerJob = scope.launch {
                 var windowStartedAt = System.nanoTime()
                 var window = MirrorStream.PipelineStatistics.ZERO
                 var ticks = 0L
@@ -574,10 +585,11 @@ class MirrorService : Service() {
             if (screenEncoder != null && stream != null) {
                 // A frame the encoder could not hand over corrupts every later
                 // P-frame, so ask for a fresh IDR and hold slices until it lands.
-                screenEncoder.onFrameDropped = {
+                screenEncoder.onFrameDropped = { droppedPtsUs ->
                     // One log line per burst: the callback fires per frame while
                     // the pipeline stays full.
                     droppedFrames.incrementAndGet()
+                    droppedUpToPtsUs.accumulateAndGet(droppedPtsUs) { cur, sample -> maxOf(cur, sample) }
                     if (awaitingKeyFrame.compareAndSet(false, true)) {
                         keyFrameGateOpenedAt.set(System.nanoTime())
                         Log.i(TAG, "[TX] dropped=${droppedFrames.get()} encoder queue full; requesting IDR")
@@ -588,6 +600,18 @@ class MirrorService : Service() {
                 // whole cost of a frame and must not queue behind the service.
                 withContext(videoSendDispatcher) {
                     var sentConfig = false
+                    val trySendConfig: (EncodedFrame) -> Unit = { cfg ->
+                        // avcC has to arrive before any slice or the receiver drops everything.
+                        val sets = NaluRepacker.parseParameterSets(cfg.data)
+                        if (sets == null) {
+                            Log.e(TAG, "Codec config had no SPS/PPS pair; cannot start the decoder")
+                        } else {
+                            // liveWidth/Height, not `format`: rotation may have swapped
+                            // the geometry since the session started.
+                            stream.sendCodecConfig(sets, liveWidth, liveHeight, cfg.presentationTimeUs)
+                            sentConfig = true
+                        }
+                    }
                     screenEncoder.frames()
                         // Deeper buffering rides out jitter at the cost of
                         // latency; it does not slow the encoder (its trySend
@@ -595,22 +619,15 @@ class MirrorService : Service() {
                         // the drop hook above plus the IDR gate below.
                         .buffer(FRAME_BUFFER)
                         .collect { frame ->
+                            // Drain any rotation SPS/PPS stashed on backpressure before slices.
+                            screenEncoder.takePendingCodecConfig()?.let(trySendConfig)
                             if (frame.isCodecConfig) {
-                                // avcC has to arrive before any slice or the receiver drops everything.
-                                val sets = NaluRepacker.parseParameterSets(frame.data)
-                                if (sets == null) {
-                                    Log.e(TAG, "Codec config had no SPS/PPS pair; cannot start the decoder")
-                                    return@collect
-                                }
-                                // liveWidth/Height, not `format`: rotation may have swapped
-                                // the geometry since the session started.
-                                stream.sendCodecConfig(sets, liveWidth, liveHeight, frame.presentationTimeUs)
-                                sentConfig = true
+                                trySendConfig(frame)
                                 return@collect
                             }
                             if (!sentConfig) return@collect // Wait for config; slices before it are useless.
                             if (awaitingKeyFrame.get()) {
-                                if (frame.isKeyFrame) {
+                                if (frame.isKeyFrame && frame.presentationTimeUs > droppedUpToPtsUs.get()) {
                                     awaitingKeyFrame.set(false)
                                 } else if (
                                     System.nanoTime() - keyFrameGateOpenedAt.get() >= KEY_FRAME_GATE_TIMEOUT_NANOS
@@ -649,8 +666,15 @@ class MirrorService : Service() {
         } finally {
             // The pump must be off its dispatcher before the dispatcher closes,
             // or the shutdown races a send with RejectedExecutionException.
+            tickerJob?.cancel()
+            stateJob.cancel()
             audioJob?.cancel()
             cleanupSession()
+            withContext(NonCancellable) {
+                tickerJob?.cancelAndJoin()
+                stateJob.cancelAndJoin()
+                audioJob?.cancelAndJoin()
+            }
             runCatching { videoSendDispatcher.close() }
             runCatching { audioSendDispatcher.close() }
             stopSelf()

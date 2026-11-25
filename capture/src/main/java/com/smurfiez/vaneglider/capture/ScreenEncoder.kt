@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import java.io.Closeable
 import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Captures the screen into a hardware H.264 encoder and emits access units.
@@ -62,6 +63,10 @@ class ScreenEncoder(
     private var currentRotation: Int = Surface.ROTATION_0
     private var projectionCallback: MediaProjection.Callback? = null
     private var codecCallback: MediaCodec.Callback? = null
+    private val pendingCodecConfig = AtomicReference<EncodedFrame?>(null)
+
+    /** Returns and clears any codec-config frame that could not fit into the channel. */
+    fun takePendingCodecConfig(): EncodedFrame? = pendingCodecConfig.getAndSet(null)
 
     /**
      * Invoked on the encoder thread whenever rotation changed the encoded
@@ -78,7 +83,7 @@ class ScreenEncoder(
      * callback must never escape into the codec thread.
      */
     @Volatile
-    var onFrameDropped: (() -> Unit)? = null
+    var onFrameDropped: ((droppedPresentationTimeUs: Long) -> Unit)? = null
 
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayChanged(displayId: Int) {
@@ -131,13 +136,16 @@ class ScreenEncoder(
             override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
                 try {
                     val buffer = codec.getOutputBuffer(index)
-                    if (buffer != null && info.size > 0) {
-                        emit(buffer, info)?.let { frame ->
+                    val frame = if (buffer != null && info.size > 0) emit(buffer, info) else null
+                    if (frame != null && !trySend(frame).isSuccess) {
+                        // Config frames (SPS/PPS) must never be lost on backpressure;
+                        // stash the latest one so the collector drains it before slices.
+                        if (frame.isCodecConfig) {
+                            pendingCodecConfig.set(frame)
+                        } else {
                             // trySend fails instead of suspending on a codec
                             // thread; tell the sender so it can ask for an IDR.
-                            if (!trySend(frame).isSuccess) {
-                                runCatching { onFrameDropped?.invoke() }
-                            }
+                            runCatching { onFrameDropped?.invoke(frame.presentationTimeUs) }
                         }
                     }
                 } catch (e: IllegalStateException) {
@@ -270,6 +278,10 @@ class ScreenEncoder(
                 setInteger(MediaFormat.KEY_PROFILE, rung.profile)
                 setInteger(MediaFormat.KEY_LEVEL, rung.level)
                 if (!rung.optionalKeys) OPTIONAL_KEYS.forEach { removeKey(it) }
+                // Baseline forbids B-frames by spec, while High rungs keep KEY_MAX_B_FRAMES = 0.
+                if (rung.profile == CodecProfileLevel.AVCProfileBaseline) {
+                    removeKey(MediaFormat.KEY_MAX_B_FRAMES)
+                }
             }
             try {
                 encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
@@ -279,6 +291,8 @@ class ScreenEncoder(
             } catch (e: Exception) {
                 Log.w(TAG, "${rung.label} rejected; trying the next rung", e)
                 lastFailure = e
+                runCatching { encoder.reset() }
+                codecCallback?.let { cb -> runCatching { encoder.setCallback(cb, handler) } }
             }
         }
         throw lastFailure ?: IllegalStateException("No H.264 encoder configuration was accepted")
@@ -316,12 +330,12 @@ class ScreenEncoder(
         )
         runCatching {
             val newCodec = MediaCodec.createEncoderByType(MIME_H264)
-            configureEncoder(newCodec, rotated)
-            val newSurface = newCodec.createInputSurface()
             newCodec.setCallback(
                 codecCallback ?: error("encoder callback unavailable"),
                 handler,
             )
+            configureEncoder(newCodec, rotated)
+            val newSurface = newCodec.createInputSurface()
             newCodec.start()
 
             virtualDisplay.setSurface(null)
@@ -407,7 +421,6 @@ class ScreenEncoder(
         val OPTIONAL_KEYS = listOf(
             MediaFormat.KEY_PRIORITY,
             MediaFormat.KEY_OPERATING_RATE,
-            MediaFormat.KEY_MAX_B_FRAMES,
             MediaFormat.KEY_LOW_LATENCY,
         )
 
