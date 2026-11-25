@@ -49,6 +49,59 @@ object NaluRepacker {
     }
 
     /**
+     * One-pass version of [toAvcc] for a reused [dst]: scans [annexB] once and
+     * writes each unit's 4-byte big-endian length followed by the unit.
+     *
+     * Returns the AVCC length, or -1 when [dst] is too small — the caller then
+     * retries with a larger buffer. A 3-byte start code grows to a 4-byte
+     * length, so the worst case is `annexB.size + unitCount` (use
+     * `annexB.size + annexB.size / 4` to be safe).
+     */
+    fun toAvccInto(annexB: ByteArray, dst: ByteArray): Int {
+        var outPos = 0
+        var index = 0
+        var unitStart = -1
+
+        // writeUnit reports overflow as -1, which ends the scan: the caller
+        // retries with a larger buffer and the partial write is discarded.
+        while (index < annexB.size && outPos >= 0) {
+            val prefix = startCodeLengthAt(annexB, index)
+            if (prefix > 0) {
+                if (unitStart >= 0 && index > unitStart) {
+                    outPos = writeUnit(annexB, unitStart, index, dst, outPos)
+                }
+                index += prefix
+                unitStart = index
+            } else {
+                index++
+            }
+        }
+        if (outPos >= 0 && unitStart in 0 until annexB.size) {
+            outPos = writeUnit(annexB, unitStart, annexB.size, dst, outPos)
+        }
+        return outPos
+    }
+
+    /**
+     * True when any length-prefixed unit in `avcc[0, length)` is an IDR slice
+     * (`nal_unit_type` 5). Allocation-free counterpart of [containsIdr] for an
+     * access unit that is already in AVCC form.
+     */
+    fun avccContainsIdr(avcc: ByteArray, length: Int = avcc.size): Boolean {
+        var pos = 0
+        var found = false
+        while (!found && pos + 4 <= length) {
+            val unitLength = readInt32(avcc, pos)
+            // A truncated or zero-length unit means the frame is malformed;
+            // nothing after it can be trusted, so stop where MirrorStream does.
+            if (unitLength <= 0 || unitLength > length - pos - 4) break
+            found = (avcc[pos + 4].toInt() and NAL_TYPE_MASK) == NAL_TYPE_IDR
+            pos += 4 + unitLength
+        }
+        return found
+    }
+
+    /**
      * Extracts the SPS and PPS from the encoder's codec-config buffer.
      * They arrive concatenated in one Annex-B blob, SPS first.
      */
@@ -69,6 +122,24 @@ object NaluRepacker {
     fun containsIdr(annexB: ByteArray): Boolean =
         splitAnnexB(annexB).any { it.isNotEmpty() && (it[0].toInt() and 0x1F) == NAL_TYPE_IDR }
 
+    /** Writes one length-prefixed unit; returns the new write position, or -1 when [dst] is too small. */
+    private fun writeUnit(src: ByteArray, from: Int, to: Int, dst: ByteArray, outPos: Int): Int {
+        val unitLength = to - from
+        if (unitLength > dst.size - outPos - 4) return -1
+        dst[outPos] = (unitLength ushr 24).toByte()
+        dst[outPos + 1] = (unitLength ushr 16).toByte()
+        dst[outPos + 2] = (unitLength ushr 8).toByte()
+        dst[outPos + 3] = unitLength.toByte()
+        src.copyInto(dst, outPos + 4, from, to)
+        return outPos + 4 + unitLength
+    }
+
+    /** Big-endian 32-bit read, as written by [writeInt32]. */
+    private fun readInt32(data: ByteArray, at: Int): Int = ((data[at].toInt() and 0xFF) shl 24) or
+        ((data[at + 1].toInt() and 0xFF) shl 16) or
+        ((data[at + 2].toInt() and 0xFF) shl 8) or
+        (data[at + 3].toInt() and 0xFF)
+
     /** Returns 3 or 4 if a start code begins at [at], otherwise 0. */
     private fun startCodeLengthAt(data: ByteArray, at: Int): Int {
         if (at + 3 > data.size) return 0
@@ -78,6 +149,7 @@ object NaluRepacker {
         return 0
     }
 
+    private const val NAL_TYPE_MASK = 0x1F
     private const val NAL_TYPE_IDR = 5
     private const val NAL_TYPE_SPS = 7
     private const val NAL_TYPE_PPS = 8

@@ -2,8 +2,6 @@ package com.smurfiez.vaneglider.airplay.session
 
 import com.smurfiez.vaneglider.airplay.crypto.ChaChaPolyCipher
 import com.smurfiez.vaneglider.airplay.crypto.HkdfSha512
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 /**
  * Frame cipher for the modern (PD-paired) mirroring data channel
@@ -25,21 +23,41 @@ class ChaChaFrameCipher(sharedSecret: ByteArray, streamConnectionId: Long) {
         info = INFO,
         length = 32,
     )
+
+    // The nonce and the sealer are reused across frames: a per-frame Cipher
+    // lookup or nonce allocation is what this class exists to avoid.
+    private val sealer = ChaChaPolyCipher.Sealer(key)
+    private val nonce = ByteArray(ChaChaPolyCipher.NONCE_LEN)
     private var nonceCounter = 0L
 
-    val overhead: Int get() = 16 // Poly1305 tag
+    val overhead: Int get() = ChaChaPolyCipher.TAG_LEN
 
     /** Seals [plaintext] (the AVCC access unit) under [header] as AAD. */
     fun seal(plaintext: ByteArray, header: ByteArray): ByteArray {
-        val nonce = ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN).apply {
-            putLong(4, nonceCounter)
-        }.array()
+        val out = ByteArray(plaintext.size + overhead)
+        val sealed = sealInto(plaintext, header, out, 0)
+        return if (sealed == out.size) out else out.copyOf(sealed)
+    }
+
+    /**
+     * Seals [plaintext] into `out[outOffset, ...)` under [header] as AAD and
+     * returns the sealed length. Advances the frame counter once.
+     */
+    fun sealInto(plaintext: ByteArray, header: ByteArray, out: ByteArray, outOffset: Int): Int {
+        var counter = nonceCounter
+        for (i in NONCE_PREFIX until ChaChaPolyCipher.NONCE_LEN) {
+            nonce[i] = (counter and 0xFF).toByte()
+            counter = counter ushr 8
+        }
         nonceCounter++
-        return ChaChaPolyCipher.seal(key, nonce, plaintext, header)
+        return sealer.seal(nonce, header, 0, header.size, plaintext, out, outOffset)
     }
 
     companion object {
         private const val INFO = "DataStream-Output-Encryption-Key"
+
+        /** Nonce bytes [0,4) are zero; the counter fills the rest. */
+        private const val NONCE_PREFIX = 4
 
         /** PTP timeline for the header's [40:48] field: the receiver's ClockID. */
         fun dataStreamSaltPreview(streamConnectionId: Long): String = "DataStream-Salt$streamConnectionId"

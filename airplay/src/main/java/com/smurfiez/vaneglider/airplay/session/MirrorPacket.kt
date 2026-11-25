@@ -1,7 +1,6 @@
 package com.smurfiez.vaneglider.airplay.session
 
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
+import java.util.Arrays
 
 /**
  * The 128-byte header in front of every buffer on the mirroring data connection.
@@ -26,7 +25,15 @@ import java.nio.ByteOrder
  * All floats are little-endian. Offsets 16/20/40/44/56/60 are read by
  * `byteutils_get_float` in the receiver's codec-config branch; 48/52 are read
  * and logged but unused for decoding.
+ *
+ * The `*Into` writers fill a caller-owned buffer that is reused frame after
+ * frame (that is the whole point: a header per frame per second adds up). Each
+ * one zeroes its 128-byte region first, so a field a previous packet wrote
+ * cannot leak into a symbol the receiver dispatches on. The `ByteArray`-
+ * returning functions are thin wrappers over them, so the layout is defined
+ * exactly once.
  */
+@Suppress("TooManyFunctions") // one writer per packet kind, plus the Into/returning pair
 object MirrorPacket {
     const val HEADER_SIZE = 128
 
@@ -46,8 +53,12 @@ object MirrorPacket {
      *   bytes off the socket before decrypting.
      * @param timestampNtp monotonic clock encoded as (seconds << 32) | fraction.
      */
-    fun videoHeader(payloadSize: Int, timestampNtp: Long): ByteArray = header(payloadSize, TYPE_VIDEO) { buffer ->
-        buffer.putLong(8, timestampNtp)
+    fun videoHeader(payloadSize: Int, timestampNtp: Long): ByteArray =
+        ByteArray(HEADER_SIZE).also { videoHeaderInto(it, 0, payloadSize, timestampNtp) }
+
+    fun videoHeaderInto(dst: ByteArray, offset: Int, payloadSize: Int, timestampNtp: Long) {
+        beginHeader(dst, offset, payloadSize, TYPE_VIDEO)
+        putLongLe(dst, offset + TIMESTAMP_OFFSET, timestampNtp)
     }
 
     /**
@@ -64,16 +75,31 @@ object MirrorPacket {
         sourceHeight: Int,
         displayWidth: Int = sourceWidth,
         displayHeight: Int = sourceHeight,
-    ): ByteArray = header(payloadSize, TYPE_CODEC_CONFIG) { buffer ->
-        buffer.putLong(8, timestampNtp)
-        buffer.putFloat(16, sourceWidth.toFloat())
-        buffer.putFloat(20, sourceHeight.toFloat())
-        buffer.putFloat(40, sourceWidth.toFloat())
-        buffer.putFloat(44, sourceHeight.toFloat())
-        buffer.putFloat(48, displayWidth.toFloat())
-        buffer.putFloat(52, displayHeight.toFloat())
-        buffer.putFloat(56, displayWidth.toFloat())
-        buffer.putFloat(60, displayHeight.toFloat())
+    ): ByteArray = ByteArray(HEADER_SIZE).also {
+        codecConfigHeaderInto(it, 0, payloadSize, timestampNtp, sourceWidth, sourceHeight, displayWidth, displayHeight)
+    }
+
+    @Suppress("LongParameterList") // protocol geometry: source and display raster, all required
+    fun codecConfigHeaderInto(
+        dst: ByteArray,
+        offset: Int,
+        payloadSize: Int,
+        timestampNtp: Long,
+        sourceWidth: Int,
+        sourceHeight: Int,
+        displayWidth: Int = sourceWidth,
+        displayHeight: Int = sourceHeight,
+    ) {
+        beginHeader(dst, offset, payloadSize, TYPE_CODEC_CONFIG)
+        putLongLe(dst, offset + TIMESTAMP_OFFSET, timestampNtp)
+        putFloatLe(dst, offset + SOURCE_WIDTH_OFFSET, sourceWidth.toFloat())
+        putFloatLe(dst, offset + SOURCE_HEIGHT_OFFSET, sourceHeight.toFloat())
+        putFloatLe(dst, offset + 40, sourceWidth.toFloat())
+        putFloatLe(dst, offset + 44, sourceHeight.toFloat())
+        putFloatLe(dst, offset + UNUSED_WIDTH_OFFSET, displayWidth.toFloat())
+        putFloatLe(dst, offset + UNUSED_HEIGHT_OFFSET, displayHeight.toFloat())
+        putFloatLe(dst, offset + DISPLAY_WIDTH_OFFSET, displayWidth.toFloat())
+        putFloatLe(dst, offset + DISPLAY_HEIGHT_OFFSET, displayHeight.toFloat())
     }
 
     /**
@@ -82,24 +108,43 @@ object MirrorPacket {
      * description, and the width/height floats describe the encoded raster.
      */
     fun modernCodecConfigHeader(payloadSize: Int, timestampNtp: Long, sourceWidth: Int, sourceHeight: Int): ByteArray =
-        header(payloadSize, TYPE_CODEC_CONFIG) { buffer ->
-            buffer.put(6, 0x16)
-            buffer.put(7, 0x01)
-            buffer.putLong(8, timestampNtp)
-            buffer.putFloat(16, sourceWidth.toFloat())
-            buffer.putFloat(20, sourceHeight.toFloat())
-            buffer.putFloat(40, sourceWidth.toFloat())
-            buffer.putFloat(44, sourceHeight.toFloat())
-            buffer.putFloat(56, sourceWidth.toFloat())
-            buffer.putFloat(60, sourceHeight.toFloat())
+        ByteArray(HEADER_SIZE).also {
+            modernCodecConfigHeaderInto(it, 0, payloadSize, timestampNtp, sourceWidth, sourceHeight)
         }
 
-    /** Modern heartbeat: doubletake's data-channel keepalive shape. */
-    fun modernHeartbeatHeader(): ByteArray = header(0, TYPE_HEARTBEAT) { buffer ->
-        buffer.put(6, 0x1e)
+    fun modernCodecConfigHeaderInto(
+        dst: ByteArray,
+        offset: Int,
+        payloadSize: Int,
+        timestampNtp: Long,
+        sourceWidth: Int,
+        sourceHeight: Int,
+    ) {
+        beginHeader(dst, offset, payloadSize, TYPE_CODEC_CONFIG)
+        dst[offset + 6] = MEDIA_TYPE_H264
+        dst[offset + 7] = 0x01
+        putLongLe(dst, offset + TIMESTAMP_OFFSET, timestampNtp)
+        putFloatLe(dst, offset + SOURCE_WIDTH_OFFSET, sourceWidth.toFloat())
+        putFloatLe(dst, offset + SOURCE_HEIGHT_OFFSET, sourceHeight.toFloat())
+        putFloatLe(dst, offset + 40, sourceWidth.toFloat())
+        putFloatLe(dst, offset + 44, sourceHeight.toFloat())
+        putFloatLe(dst, offset + DISPLAY_WIDTH_OFFSET, sourceWidth.toFloat())
+        putFloatLe(dst, offset + DISPLAY_HEIGHT_OFFSET, sourceHeight.toFloat())
     }
 
-    fun heartbeatHeader(): ByteArray = header(0, TYPE_HEARTBEAT) {}
+    /** Modern heartbeat: doubletake's data-channel keepalive shape. */
+    fun modernHeartbeatHeader(): ByteArray = ByteArray(HEADER_SIZE).also { modernHeartbeatHeaderInto(it, 0) }
+
+    fun modernHeartbeatHeaderInto(dst: ByteArray, offset: Int) {
+        beginHeader(dst, offset, 0, TYPE_HEARTBEAT)
+        dst[offset + 6] = HEARTBEAT_OPTION
+    }
+
+    fun heartbeatHeader(): ByteArray = ByteArray(HEADER_SIZE).also { heartbeatHeaderInto(it, 0) }
+
+    fun heartbeatHeaderInto(dst: ByteArray, offset: Int) {
+        beginHeader(dst, offset, 0, TYPE_HEARTBEAT)
+    }
 
     /**
      * Header for one encrypted video access unit on the modern data channel
@@ -108,21 +153,75 @@ object MirrorPacket {
      * frame lands on the clock the session was anchored to.
      */
     fun modernVideoHeader(payloadSize: Int, timestampNtp: Long, keyframe: Boolean, timelineId: Long): ByteArray =
-        header(payloadSize, TYPE_VIDEO) { buffer ->
-            buffer.put(5, if (keyframe) 0x10 else 0x00)
-            buffer.putLong(8, timestampNtp)
-            buffer.putLong(40, timelineId)
+        ByteArray(HEADER_SIZE).also {
+            modernVideoHeaderInto(it, 0, payloadSize, timestampNtp, keyframe, timelineId)
         }
 
-    private inline fun header(payloadSize: Int, type: Int, fill: (ByteBuffer) -> Unit): ByteArray {
-        require(payloadSize >= 0) { "Negative payload size: $payloadSize" }
-        val buffer = ByteBuffer.allocate(HEADER_SIZE).order(ByteOrder.LITTLE_ENDIAN)
-        buffer.putInt(0, payloadSize)
-        buffer.putShort(4, type.toShort())
-        buffer.putShort(6, 0) // payload option; zero in every capture seen so far
-        fill(buffer)
-        return buffer.array()
+    @Suppress("LongParameterList") // one buffer window plus the doubletake sendFrame fields
+    fun modernVideoHeaderInto(
+        dst: ByteArray,
+        offset: Int,
+        payloadSize: Int,
+        timestampNtp: Long,
+        keyframe: Boolean,
+        timelineId: Long,
+    ) {
+        beginHeader(dst, offset, payloadSize, TYPE_VIDEO)
+        dst[offset + FLAGS_OFFSET] = if (keyframe) KEYFRAME_FLAG else 0x00
+        putLongLe(dst, offset + TIMESTAMP_OFFSET, timestampNtp)
+        putLongLe(dst, offset + TIMELINE_OFFSET, timelineId)
     }
+
+    /**
+     * Clears the header region and writes the fields every packet shares.
+     * The zeroing is load-bearing: [dst] is reused, and a stale float or flag
+     * would be read by a receiver that dispatches on it.
+     */
+    private fun beginHeader(dst: ByteArray, offset: Int, payloadSize: Int, type: Int) {
+        require(payloadSize >= 0) { "Negative payload size: $payloadSize" }
+        require(offset >= 0 && offset <= dst.size - HEADER_SIZE) {
+            "Header does not fit: offset $offset of ${dst.size} bytes"
+        }
+        Arrays.fill(dst, offset, offset + HEADER_SIZE, 0.toByte())
+        putIntLe(dst, offset, payloadSize)
+        putShortLe(dst, offset + 4, type)
+        // offset 6 (payload option) stays zero unless a writer sets it.
+    }
+
+    private fun putIntLe(dst: ByteArray, offset: Int, value: Int) {
+        dst[offset] = value.toByte()
+        dst[offset + 1] = (value shr 8).toByte()
+        dst[offset + 2] = (value shr 16).toByte()
+        dst[offset + 3] = (value shr 24).toByte()
+    }
+
+    private fun putShortLe(dst: ByteArray, offset: Int, value: Int) {
+        dst[offset] = value.toByte()
+        dst[offset + 1] = (value shr 8).toByte()
+    }
+
+    private fun putLongLe(dst: ByteArray, offset: Int, value: Long) {
+        var v = value
+        for (i in 0 until 8) {
+            dst[offset + i] = v.toByte()
+            v = v shr 8
+        }
+    }
+
+    private fun putFloatLe(dst: ByteArray, offset: Int, value: Float) = putIntLe(dst, offset, value.toRawBits())
+
+    private const val TIMESTAMP_OFFSET = 8
+    private const val FLAGS_OFFSET = 5
+    private const val SOURCE_WIDTH_OFFSET = 16
+    private const val SOURCE_HEIGHT_OFFSET = 20
+    private const val UNUSED_WIDTH_OFFSET = 48
+    private const val UNUSED_HEIGHT_OFFSET = 52
+    private const val DISPLAY_WIDTH_OFFSET = 56
+    private const val DISPLAY_HEIGHT_OFFSET = 60
+    private const val TIMELINE_OFFSET = 40
+    private const val KEYFRAME_FLAG: Byte = 0x10
+    private const val MEDIA_TYPE_H264: Byte = 0x16
+    private const val HEARTBEAT_OPTION: Byte = 0x1e
 }
 
 /**
@@ -137,41 +236,40 @@ object MirrorPacket {
  */
 class MirrorClock {
 
-    // PTP anchor (doubletake mediaClock): maps the receiver's advertised
-    // timeline onto our monotonic clock. Set from the control SETUP response.
-    private val ptpLock = Any()
-    private var ptpAnchorTimestamp: Long = 0
-    private var ptpAnchorMonoNanos: Long = 0
-    private var ptpTimelineId: Long = 0
-    private var ptpActive = false
+    /**
+     * PTP anchor (doubletake mediaClock): maps the receiver's advertised
+     * timeline onto our monotonic clock. Set from the control SETUP response.
+     * One immutable snapshot behind a volatile field, so the per-frame read
+     * neither locks nor allocates; only the config calls are synchronized.
+     */
+    private class Anchor(val active: Boolean, val base: Long, val baseNanos: Long, val timelineId: Long)
+
+    @Volatile
+    private var anchor = Anchor(false, 0, 0, 0)
 
     /**
      * Anchors the receiver's PTP timeline: [anchorTimestamp] (compact NTP, the
      * receiver's clock at the moment the request finished processing) observed
      * locally at [anchorMonoNanos] (System.nanoTime scale).
      */
+    @Synchronized
     fun configurePtpAnchor(anchorTimestamp: Long, timelineId: Long, anchorMonoNanos: Long) {
-        synchronized(ptpLock) {
-            ptpAnchorTimestamp = anchorTimestamp
-            ptpTimelineId = timelineId
-            ptpAnchorMonoNanos = anchorMonoNanos
-            ptpActive = true
-        }
+        anchor = Anchor(true, anchorTimestamp, anchorMonoNanos, timelineId)
     }
 
     /** The receiver's advertised PTP timeline (ClockID), or 0 for the local clock. */
-    fun ptpTimelineId(): Long = synchronized(ptpLock) { if (ptpActive) ptpTimelineId else 0 }
+    fun ptpTimelineId(): Long = anchor.let { if (it.active) it.timelineId else 0 }
 
     /**
      * Re-anchors the timeline to a new ClockID (doubletake
      * updateTimingPeerInfo): the accumulated receiver-time since the last
      * anchor carries over, so the clock never jumps.
      */
+    @Synchronized
     fun reanchorTimeline(timelineId: Long) {
-        synchronized(ptpLock) {
-            if (!ptpActive || timelineId == ptpTimelineId) return
-            ptpTimelineId = timelineId
-        }
+        val current = anchor
+        if (!current.active || timelineId == current.timelineId) return
+        anchor = Anchor(true, current.base, current.baseNanos, timelineId)
     }
 
     fun now(): Long = fromMonotonicNanos(System.nanoTime())
@@ -193,10 +291,12 @@ class MirrorClock {
         // The anchor is already compact 32.32; only the ELAPSED nanos since the
         // anchor get compacted. Re-compacting the whole sum would multiply the
         // timestamp by 2^32/1e9 (frames land hours in the receiver's future).
-        val (active, base, baseNanos) = synchronized(ptpLock) {
-            Triple(ptpActive, ptpAnchorTimestamp, ptpAnchorMonoNanos)
+        val snapshot = anchor
+        return if (snapshot.active) {
+            snapshot.base + compactDelta(monoNanos - snapshot.baseNanos)
+        } else {
+            compact(monoNanos)
         }
-        return if (active) base + compactDelta(monoNanos - baseNanos) else compact(monoNanos)
     }
 
     /** Compact 32.32 representation of a (possibly negative) nanosecond span. */
