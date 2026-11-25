@@ -5,8 +5,10 @@ import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
+import android.media.MediaCodecInfo.CodecProfileLevel
 import android.media.MediaFormat
 import android.media.projection.MediaProjection
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
@@ -91,7 +93,10 @@ class ScreenEncoder(
      * references would corrupt the stream until the next IDR.
      */
     fun frames(): Flow<EncodedFrame> = callbackFlow {
-        val thread = HandlerThread("kite-encoder").apply { start() }
+        // Display priority so encode callbacks and the virtual display outrank
+        // background work; everything still rides this one thread on purpose.
+        val thread = HandlerThread("kite-encoder", android.os.Process.THREAD_PRIORITY_DISPLAY)
+            .apply { start() }
         callbackThread = thread
         val encoderHandler = Handler(thread.looper)
         handler = encoderHandler
@@ -201,37 +206,66 @@ class ScreenEncoder(
             // C2 mapping and clamped by the codec's own level limit).
             setInteger("max-bitrate", target.bitRate)
 
-            // Receivers accept Baseline, and it is the safest common denominator.
-            setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
+            // High profile is worth roughly 15-25% quality per bit over
+            // Baseline at the same rate; the ladder falls back to Baseline for
+            // encoders that cannot produce it.
+            setInteger(MediaFormat.KEY_PROFILE, CodecProfileLevel.AVCProfileHigh)
             // Level 4.1 caps the rate control near 50 Mbps — silently clamping
             // the slider's 200 and starving motion frames. Level 5.2 is what
             // 2400p120 requires anyway; configure() falls back to 4.1 when a
             // device cannot do it.
-            setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel52)
+            setInteger(MediaFormat.KEY_LEVEL, CodecProfileLevel.AVCLevel52)
 
             // Repeat the last frame when the screen is static, otherwise the
             // receiver's decoder stalls and playback looks frozen.
             setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, STATIC_FRAME_REPEAT_US)
+
+            // Below this line sit the low-latency hints the ladder in
+            // configureEncoder() strips again for encoders that reject them.
+            // Realtime priority (0) so encoding outranks background work; the
+            // operating rate tells the encoder how fast input actually arrives,
+            // so it stops building lookahead; no B-frames at all, because
+            // reordering is where encoder delay comes from.
+            setInteger(MediaFormat.KEY_PRIORITY, 0)
+            setInteger(MediaFormat.KEY_OPERATING_RATE, target.frameRate)
+            setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+            }
         }
 
     /**
-     * Configures the codec, retrying at AVC Level 4.1 when the device rejects
-     * Level 5.2. Every consumer of this stream (VideoToolbox on macOS, the
-     * d3d12 decoders on Windows, Android's own decoder) handles 5.2; only
-     * some encoders refuse to *produce* it.
+     * Configures the codec, walking a ladder from the best rung down to the
+     * widest-support one.
+     *
+     * A failed `configure()` leaves the codec reusable, so each rung is a plain
+     * retry on the same instance. High profile buys ~15-25% quality per bit over
+     * Baseline, and the low-latency hints cut a few frames of encoder delay, but
+     * vendor encoders reject them in the oddest combinations — hence the tail of
+     * the ladder. If every rung fails the last exception propagates so the
+     * existing capture-failure path runs.
      */
     private fun configureEncoder(encoder: MediaCodec, target: VideoFormat) {
-        val format = mediaFormatFor(target)
-        try {
-            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        } catch (e: Exception) {
-            Log.w(TAG, "Level 5.2 rejected; falling back to 4.1", e)
-            format.setInteger(
-                MediaFormat.KEY_LEVEL,
-                MediaCodecInfo.CodecProfileLevel.AVCLevel41,
-            )
-            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        var lastFailure: Exception? = null
+        for (rung in CONFIG_LADDER) {
+            val format = mediaFormatFor(target).apply {
+                // Rebinding the best-rung values mediaFormatFor() already set;
+                // the later rungs are the reason this is here at all.
+                setInteger(MediaFormat.KEY_PROFILE, rung.profile)
+                setInteger(MediaFormat.KEY_LEVEL, rung.level)
+                if (!rung.optionalKeys) OPTIONAL_KEYS.forEach { removeKey(it) }
+            }
+            try {
+                encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                val hints = if (rung.optionalKeys) "with" else "without"
+                Log.i(TAG, "Encoder configured: ${rung.label} $hints low-latency hints")
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "${rung.label} rejected; trying the next rung", e)
+                lastFailure = e
+            }
         }
+        throw lastFailure ?: IllegalStateException("No H.264 encoder configuration was accepted")
     }
 
     /**
@@ -352,7 +386,35 @@ class ScreenEncoder(
 
         /** Resend the previous frame after this long with no screen change. */
         const val STATIC_FRAME_REPEAT_US = 100_000L
+
+        /** The hints a vendor encoder is most likely to reject on its own. */
+        val OPTIONAL_KEYS = listOf(
+            MediaFormat.KEY_PRIORITY,
+            MediaFormat.KEY_OPERATING_RATE,
+            MediaFormat.KEY_MAX_B_FRAMES,
+            MediaFormat.KEY_LOW_LATENCY,
+        )
+
+        /**
+         * Configure ladder, best rung first. Entries are
+         * (label, profile, level, keep the optional low-latency hints).
+         * High profile at 5.2 keeps the slider's full bitrate; Baseline ties are
+         * the historical safe configuration, kept as the last resort.
+         */
+        val CONFIG_LADDER = listOf(
+            ConfigRung("High @ 5.2", CodecProfileLevel.AVCProfileHigh, CodecProfileLevel.AVCLevel52, true),
+            ConfigRung("High @ 5.2", CodecProfileLevel.AVCProfileHigh, CodecProfileLevel.AVCLevel52, false),
+            ConfigRung("High @ 4.1", CodecProfileLevel.AVCProfileHigh, CodecProfileLevel.AVCLevel41, true),
+            ConfigRung("High @ 4.1", CodecProfileLevel.AVCProfileHigh, CodecProfileLevel.AVCLevel41, false),
+            ConfigRung("Baseline @ 5.2", CodecProfileLevel.AVCProfileBaseline, CodecProfileLevel.AVCLevel52, true),
+            ConfigRung("Baseline @ 5.2", CodecProfileLevel.AVCProfileBaseline, CodecProfileLevel.AVCLevel52, false),
+            ConfigRung("Baseline @ 4.1", CodecProfileLevel.AVCProfileBaseline, CodecProfileLevel.AVCLevel41, true),
+            ConfigRung("Baseline @ 4.1", CodecProfileLevel.AVCProfileBaseline, CodecProfileLevel.AVCLevel41, false),
+        )
     }
+
+    /** One rung of [CONFIG_LADDER]. */
+    private class ConfigRung(val label: String, val profile: Int, val level: Int, val optionalKeys: Boolean)
 }
 
 private fun Display.realSize(): Pair<Int, Int> {

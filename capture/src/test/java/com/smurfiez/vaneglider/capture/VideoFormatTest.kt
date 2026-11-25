@@ -73,6 +73,21 @@ class VideoFormatTest {
     }
 
     @Test
+    fun `IDR interval is five seconds by default`() {
+        // AirPlay video is TCP, so a frequent IDR only spends bitrate; recovery
+        // is on demand through requestKeyFrame().
+        assertEquals(5, VideoFormat(1072, 2400).keyFrameIntervalSeconds)
+        assertEquals(5, VideoFormat.forDisplay(1072, 2400).keyFrameIntervalSeconds)
+    }
+
+    @Test
+    fun `IDR interval can be overridden per session`() {
+        // The constructor parameter is still honoured, not just the default.
+        val format = VideoFormat(1072, 2400, keyFrameIntervalSeconds = 2).aligned()
+        assertEquals(2, format.keyFrameIntervalSeconds)
+    }
+
+    @Test
     fun `default bit rate scales with pixels and clamps to the bounds`() {
         // 1072x2400@60 ≈ 0.1 bpp → 15.4 Mbps, inside the range untouched.
         assertEquals(15_436_800, VideoFormat.defaultBitRate(1072, 2400, 60))

@@ -6,8 +6,12 @@ data class VideoFormat(
     val height: Int,
     val frameRate: Int = 30,
     val bitRate: Int = defaultBitRate(width, height, 30),
-    /** Seconds between IDR frames. Short keeps recovery fast after packet loss. */
-    val keyFrameIntervalSeconds: Int = 2,
+    /**
+     * Seconds between IDR frames. AirPlay video runs over reliable TCP, so a
+     * frequent IDR only buys periodic bitrate spikes; recovery from a drop is
+     * driven on demand by `ScreenEncoder.requestKeyFrame()`.
+     */
+    val keyFrameIntervalSeconds: Int = 5,
 ) {
     init {
         // H.264 requires even dimensions; most hardware encoders demand multiples of 16.
