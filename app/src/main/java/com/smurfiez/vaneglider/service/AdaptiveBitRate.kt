@@ -14,6 +14,10 @@ import com.smurfiez.vaneglider.capture.VideoFormat
  * decrease: it backs off fast when the link complains and probes gently when
  * it stops.
  *
+ * Dropped frames are the last resort of that pressure: the encoder handing a
+ * frame over and nobody taking it means the pipeline is already behind, so a
+ * window with any drop cuts immediately, whatever the blocked share says.
+ *
  * shortcut: reactive only — the first congested window still stutters before
  * the cut lands, and recovery takes seconds; upgrade if a receiver ever
  * exposes loss or queue stats.
@@ -30,16 +34,18 @@ class AdaptiveBitRate(initialBps: Int) {
      *   writing video (0 = the socket never made us wait).
      * @param ceilingBps what this geometry would pick on its own; a rotation
      *   re-derives it, so the ceiling follows the live frame size.
+     * @param droppedFrames frames the encoder produced that nobody could take in
+     *   this window; any drop cuts, because the stream is already behind.
      * @return the bitrate to apply, or null when it stays where it is.
      */
-    fun onWindow(busyFraction: Double, ceilingBps: Int): Int? {
+    fun onWindow(busyFraction: Double, ceilingBps: Int, droppedFrames: Long = 0): Int? {
         val ceiling = ceilingBps.coerceAtLeast(VideoFormat.BIT_RATE_MIN_BPS)
         // A rotation rebuild resets the encoder to the size-derived rate; follow it.
         currentBps = currentBps.coerceAtMost(ceiling)
         val before = currentBps
 
         when {
-            busyFraction > CROWDED -> {
+            busyFraction > CROWDED || droppedFrames > 0 -> {
                 cleanWindows = 0
                 // Long math: 110%/75% of a 100 Mbps stream overflows Int.
                 currentBps = (before.toLong() * CUT_PERCENT / 100).toInt()

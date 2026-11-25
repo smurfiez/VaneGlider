@@ -47,14 +47,17 @@ import com.smurfiez.vaneglider.capture.ScreenEncoder
 import com.smurfiez.vaneglider.capture.VideoFormat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -65,6 +68,9 @@ import java.util.concurrent.atomic.AtomicLong
  * be running on API 34+, so the projection result from the Activity is handed here
  * and only turned into a capture session after [startForeground].
  */
+// One service owns the projection, the four session kinds, the send threads and
+// the notification; splitting it now would be a refactor, not a fix.
+@Suppress("LargeClass")
 class MirrorService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -73,13 +79,20 @@ class MirrorService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
+    /** Send loops own a real thread each; created per session, closed in cleanup. */
+    private var videoSendDispatcher: ExecutorCoroutineDispatcher? = null
+    private var audioSendDispatcher: ExecutorCoroutineDispatcher? = null
+
     /**
-     * One thread each for the video and audio send loops, so the priority set
-     * at the top of each loop holds for its resumptions too. Views of the IO
-     * pool: no thread is created that would need shutting down.
+     * A single thread with its priority set in the factory, not
+     * `limitedParallelism`: that only limits concurrency, so the loop resumes on
+     * arbitrary IO threads (the priority would not survive) and a raised nice
+     * would leak onto unrelated IO work.
      */
-    private val videoDispatcher by lazy { Dispatchers.IO.limitedParallelism(1) }
-    private val audioDispatcher by lazy { Dispatchers.IO.limitedParallelism(1) }
+    private fun newSendDispatcher(name: String, priority: Int): ExecutorCoroutineDispatcher =
+        Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, name).apply { this.priority = priority }
+        }.asCoroutineDispatcher()
 
     private var projection: MediaProjection? = null
     private var encoder: ScreenEncoder? = null
@@ -476,10 +489,13 @@ class MirrorService : Service() {
             }
 
             // Start audio feed before video so priming packets arrive first.
+            // The two send loops get their own threads (see newSendDispatcher).
+            val videoDispatcher = newSendDispatcher("kite-video-send", Process.THREAD_PRIORITY_DISPLAY)
+                .also { videoSendDispatcher = it }
+            val audioDispatcher = newSendDispatcher("kite-audio-send", Process.THREAD_PRIORITY_URGENT_AUDIO)
+                .also { audioSendDispatcher = it }
             audioJob = audioEncoder?.let { audio ->
                 scope.launch(audioDispatcher) {
-                    // Urgent audio: the pump must win over capture housekeeping.
-                    runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO) }
                     try {
                         pumpAudio(audio, mirrorSession)
                     } catch (e: Exception) {
@@ -493,10 +509,12 @@ class MirrorService : Service() {
             val adaptive = if (bitRateOverride == null && !skipVideo) AdaptiveBitRate(format.bitRate) else null
 
             // Encoder-side drops (ScreenEncoder's channel was full) never reach
-            // the stream, so the service counts them for the [TX] line, and
-            // keeps sending slices off the air until the requested IDR lands.
+            // the stream, so the service counts them for the [TX] line and for
+            // the controller, and keeps sending slices off the air until the
+            // requested IDR lands.
             val droppedFrames = AtomicLong(0)
             val awaitingKeyFrame = AtomicBoolean(false)
+            val keyFrameGateOpenedAt = AtomicLong(0)
 
             // One ticker, two cadences: the bitrate controller wants a 500 ms
             // window, the [TX] line and the notification update once a second.
@@ -504,12 +522,19 @@ class MirrorService : Service() {
                 var windowStartedAt = System.nanoTime()
                 var window = MirrorStream.PipelineStatistics.ZERO
                 var ticks = 0L
+                var lastDropped = 0L
+                var droppedInWindow = 0L
                 while (isActive) {
                     delay(ABR_WINDOW_MS)
                     val drained = stream?.drainPipelineStatistics() ?: MirrorStream.PipelineStatistics.ZERO
                     val now = System.nanoTime()
                     val windowNanos = now - windowStartedAt
                     windowStartedAt = now
+                    // The encoder's drops arrive tick by tick; the controller
+                    // takes this window's, the [TX] line the second's worth.
+                    val droppedTotal = droppedFrames.get()
+                    val droppedThisTick = droppedTotal - lastDropped
+                    lastDropped = droppedTotal
                     // The socket is the only bandwidth sensor this protocol
                     // offers: a blocked write is a link that cannot keep up.
                     val blockedFraction = if (windowNanos > 0) {
@@ -519,21 +544,22 @@ class MirrorService : Service() {
                     }
                     adaptive?.let { controller ->
                         val ceiling = VideoFormat.defaultBitRate(liveWidth, liveHeight, format.frameRate)
-                        controller.onWindow(blockedFraction, ceiling)?.let { bps ->
+                        controller.onWindow(blockedFraction, ceiling, droppedThisTick)?.let { bps ->
                             screenEncoder?.setBitRate(bps)
                             Log.i(
                                 TAG,
-                                "[BITRATE] writes blocked ${(blockedFraction * 100).toInt()}% of the window " +
-                                    "-> ${bps / 1_000_000.0} Mbps",
+                                "[BITRATE] blocked ${(blockedFraction * 100).toInt()}% of the window, " +
+                                    "drops=$droppedThisTick -> ${bps / 1_000_000.0} Mbps",
                             )
                         }
                     }
                     window += drained
+                    droppedInWindow += droppedThisTick
                     if (++ticks % STATS_TICKS == 0L) {
                         // Publishing the new rate is what refreshes the notification.
-                        // The encoder's drops are counted here, not by the stream.
-                        mirrorSession.refreshStatistics(window.copy(droppedFrames = droppedFrames.getAndSet(0)))
+                        mirrorSession.refreshStatistics(window.copy(droppedFrames = droppedInWindow))
                         window = MirrorStream.PipelineStatistics.ZERO
+                        droppedInWindow = 0
                     }
                 }
             }
@@ -546,22 +572,22 @@ class MirrorService : Service() {
                 screenEncoder.onFrameDropped = {
                     // One log line per burst: the callback fires per frame while
                     // the pipeline stays full.
-                    val firstOfBurst = awaitingKeyFrame.compareAndSet(false, true)
                     droppedFrames.incrementAndGet()
-                    screenEncoder.requestKeyFrame()
-                    if (firstOfBurst) {
+                    if (awaitingKeyFrame.compareAndSet(false, true)) {
+                        keyFrameGateOpenedAt.set(System.nanoTime())
                         Log.i(TAG, "[TX] dropped=${droppedFrames.get()} encoder queue full; requesting IDR")
                     }
+                    screenEncoder.requestKeyFrame()
                 }
                 // Its own thread at display priority: the socket write is the
                 // whole cost of a frame and must not queue behind the service.
                 withContext(videoDispatcher) {
-                    runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY) }
                     var sentConfig = false
                     screenEncoder.frames()
-                        // Suspending buffer instead of drop-oldest: the encoder is
-                        // throttled by the socket rather than losing a P-frame that
-                        // later frames reference (or the codec config itself).
+                        // Deeper buffering rides out jitter at the cost of
+                        // latency; it does not slow the encoder (its trySend
+                        // drops the newest frame). What recovers from a drop is
+                        // the drop hook above plus the IDR gate below.
                         .buffer(FRAME_BUFFER)
                         .collect { frame ->
                             if (frame.isCodecConfig) {
@@ -579,9 +605,24 @@ class MirrorService : Service() {
                             }
                             if (!sentConfig) return@collect // Wait for config; slices before it are useless.
                             if (awaitingKeyFrame.get()) {
-                                // These slices reference the picture that was dropped.
-                                if (!frame.isKeyFrame) return@collect
-                                awaitingKeyFrame.set(false)
+                                if (frame.isKeyFrame) {
+                                    awaitingKeyFrame.set(false)
+                                } else if (
+                                    System.nanoTime() - keyFrameGateOpenedAt.get() >= KEY_FRAME_GATE_TIMEOUT_NANOS
+                                ) {
+                                    // The encoder ignored both the sync request
+                                    // and its I-frame interval. A frozen cast is
+                                    // worse than a receiver that has to wait for
+                                    // the next natural IDR, so let slices flow.
+                                    Log.e(
+                                        TAG,
+                                        "[TX] no IDR in 1 s (dropped=${droppedFrames.get()}); resuming slices",
+                                    )
+                                    awaitingKeyFrame.set(false)
+                                } else {
+                                    // These slices reference the picture that was dropped.
+                                    return@collect
+                                }
                             }
                             stream.sendVideoFrame(frame.data, frame.presentationTimeUs)
                         }
@@ -671,6 +712,12 @@ class MirrorService : Service() {
     private fun cleanupSession() {
         metricJob?.cancel()
         metricJob = null
+        // The send threads outlive neither the session nor this call: shut them
+        // down before the encoders, so nothing is dispatched onto a dead codec.
+        runCatching { videoSendDispatcher?.close() }
+        videoSendDispatcher = null
+        runCatching { audioSendDispatcher?.close() }
+        audioSendDispatcher = null
         runCatching { encoder?.close() }
         // AudioRecord holds an exclusive capture session; leaking it makes the
         // next mirroring attempt fail to open audio at all.
@@ -853,6 +900,9 @@ class MirrorService : Service() {
 
         /** Frames the sender may fall behind: enough to absorb jitter, small enough to stay live. */
         private const val FRAME_BUFFER = 3
+
+        /** How long the IDR gate holds slices before it lets content flow again. */
+        private const val KEY_FRAME_GATE_TIMEOUT_NANOS = 1_000_000_000L
         private const val DEFAULT_MAX_LONG_EDGE = 1920
         private const val DEFAULT_FRAME_RATE = 30
 

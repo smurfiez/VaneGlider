@@ -69,6 +69,15 @@ class AdaptiveBitRateTest {
     }
 
     @Test
+    fun `a window with dropped frames cuts even when writes were cheap`() {
+        val controller = AdaptiveBitRate(ceiling)
+
+        assertEquals(15_000_000, controller.onWindow(busyFraction = 0.0, ceilingBps = ceiling, droppedFrames = 4))
+        // The drop also reset the clean-window count, so recovery starts over.
+        assertNull(controller.onWindow(busyFraction = 0.1, ceilingBps = ceiling))
+    }
+
+    @Test
     fun `a rotation ceiling below the current rate clamps`() {
         val controller = AdaptiveBitRate(ceiling)
 

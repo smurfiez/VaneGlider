@@ -9,9 +9,9 @@ import org.bouncycastle.crypto.params.KeyParameter
  * Poly1305 key taken from the counter-0 block. Neither Android's nor Bouncy
  * Castle's IETF-only AEADs produce this layout, so the core function lives here.
  *
- * This one-shot form allocates its output and its MAC input. The 125 Hz
- * screen-audio path seals through [Sealer] instead; this class stays for callers
- * that hand over a whole array.
+ * This is the one-shot oracle the tests check the fast [Sealer] against; the
+ * production audio path seals through that sealer directly. This class holds one
+ * shared sealer and is therefore not thread-safe.
  */
 class OriginalChaCha20Poly1305(key: ByteArray, nonce: ByteArray) {
 

@@ -68,24 +68,22 @@ class MirrorStream(
     private val bytesSent = AtomicLong(0)
     private val framesSent = AtomicLong(0)
 
-    // Pipeline telemetry: all of it is written by the packet writer and read
-    // once per window by drainPipelineStatistics().
-    private var frames = 0L
-    private var blockedNanos = 0L
-    private var repackNanos = 0L
-    private var cryptoNanos = 0L
-    private var latencySumMs = 0L
-    private var latencyMaxMs = 0L
-
-    /** When the last video frame finished writing; gates the modern heartbeat. */
-    private var lastFrameWriteNanos = 0L
+    // Pipeline telemetry. Atomics, not plain fields under the write monitor: the
+    // owner's ticker drains them while a write may be blocked on a dead peer,
+    // and waiting for that monitor would freeze the statistics and the
+    // notification with it. The window can therefore be off by one frame at the
+    // drain boundary, which the averages do not care about.
+    private val frames = AtomicLong(0)
+    private val blockedNanos = AtomicLong(0)
+    private val repackNanos = AtomicLong(0)
+    private val cryptoNanos = AtomicLong(0)
+    private val latencySumMs = AtomicLong(0)
+    private val latencyMaxMs = AtomicLong(0)
 
     /** Timestamp of the codec config; the first video frame reuses it so the
      *  receiver actually prepends the SPS/PPS it just received. Legacy only —
      *  modern sessions use the natural PTP timestamps end to end. */
     private var configTimestampNtp: Long? = null
-
-    private var firstFrameSent = false
 
     val statistics: Statistics
         get() = Statistics(bytesSent.get(), framesSent.get())
@@ -145,7 +143,7 @@ class MirrorStream(
     fun sendVideoFrame(annexB: ByteArray, presentationTimeUs: Long) {
         val repackStartedAt = System.nanoTime()
         val repacked = repackIntoBuffer(annexB)
-        repackNanos += System.nanoTime() - repackStartedAt
+        repackNanos.addAndGet(System.nanoTime() - repackStartedAt)
         if (repacked <= 0) return
 
         // Both ciphers take a whole array, and the staging buffer is sized for
@@ -156,15 +154,13 @@ class MirrorStream(
 
         if (modern) sendModernFrame(avcc, presentationTimeUs) else sendLegacyFrame(avcc, presentationTimeUs)
 
-        firstFrameSent = true
-        lastFrameWriteNanos = System.nanoTime()
         framesSent.incrementAndGet()
-        frames++
+        frames.incrementAndGet()
         // Encode-to-wire: the frame's capture stamp against the moment its last
         // byte reached the socket.
-        val latencyMs = (lastFrameWriteNanos - presentationTimeUs * NANOS_PER_MICRO) / NANOS_PER_MILLI
-        latencySumMs += latencyMs
-        latencyMaxMs = maxOf(latencyMaxMs, latencyMs)
+        val latencyMs = (System.nanoTime() - presentationTimeUs * NANOS_PER_MICRO) / NANOS_PER_MILLI
+        latencySumMs.addAndGet(latencyMs)
+        latencyMaxMs.accumulateAndGet(latencyMs) { current, sample -> maxOf(current, sample) }
     }
 
     /** Modern payload: one-pass AVCC, sealed into the packet buffer, header as AAD. */
@@ -192,7 +188,7 @@ class MirrorStream(
             avcc.copyInto(packet, MirrorPacket.HEADER_SIZE)
             avcc.size
         }
-        cryptoNanos += System.nanoTime() - cryptoStartedAt
+        cryptoNanos.addAndGet(System.nanoTime() - cryptoStartedAt)
         writeHeaderAndPayload(sealed)
     }
 
@@ -200,7 +196,7 @@ class MirrorStream(
     private fun sendLegacyFrame(avcc: ByteArray, presentationTimeUs: Long) {
         val cryptoStartedAt = System.nanoTime()
         val encrypted = cipher!!.encrypt(avcc)
-        cryptoNanos += System.nanoTime() - cryptoStartedAt
+        cryptoNanos.addAndGet(System.nanoTime() - cryptoStartedAt)
         // The receiver drops the SPS/PPS unless the first video frame carries the
         // exact same timestamp as the codec config, so force it for the first one.
         val timestampNtp = configTimestampNtp?.also { configTimestampNtp = null }
@@ -214,15 +210,13 @@ class MirrorStream(
     /**
      * Modern data-channel keepalive (doubletake dataHeartbeatLoop shape).
      *
-     * Sound-only sessions never write a video frame and the receiver still
-     * expects the beat, so it goes out unconditionally there. While frames flow
-     * the beat proves nothing the video does not, and it would only cost a
-     * packet write against the buffer the pump is using.
+     * Sent on every feedback tick, sound-only and video alike: it is what the
+     * reference sender does, the header and payload leave as one write under the
+     * monitor, so the beat no longer races a frame.
      */
     @Synchronized
     fun sendHeartbeat() {
         if (!modern) return
-        if (firstFrameSent && System.nanoTime() - lastFrameWriteNanos < HEARTBEAT_IDLE_NANOS) return
         MirrorPacket.modernHeartbeatHeaderInto(header, 0)
         ensurePacketCapacity(MirrorPacket.HEADER_SIZE)
         writeHeaderAndPayload(0)
@@ -263,29 +257,20 @@ class MirrorStream(
     }
 
     /**
-     * Returns and clears the accumulators. Draining is serialised against the
-     * writer, so the window it reports is whole: no packet is half-counted. One
-     * allocation per call, and the caller drains once per window.
+     * Returns and clears the accumulators. Deliberately lock-free: the caller is
+     * a 500 ms ticker, and a write blocked on a dead peer holds the write
+     * monitor for as long as the kernel's retransmit timeout. The window may be
+     * off by one frame at the boundary, which is noise for a rate estimate.
      */
-    @Synchronized
-    fun drainPipelineStatistics(): PipelineStatistics {
-        val drained = PipelineStatistics(
-            frames = frames,
-            droppedFrames = 0,
-            blockedNanos = blockedNanos,
-            repackNanos = repackNanos,
-            cryptoNanos = cryptoNanos,
-            latencySumMs = latencySumMs,
-            latencyMaxMs = latencyMaxMs,
-        )
-        frames = 0
-        blockedNanos = 0
-        repackNanos = 0
-        cryptoNanos = 0
-        latencySumMs = 0
-        latencyMaxMs = 0
-        return drained
-    }
+    fun drainPipelineStatistics(): PipelineStatistics = PipelineStatistics(
+        frames = frames.getAndSet(0),
+        droppedFrames = 0,
+        blockedNanos = blockedNanos.getAndSet(0),
+        repackNanos = repackNanos.getAndSet(0),
+        cryptoNanos = cryptoNanos.getAndSet(0),
+        latencySumMs = latencySumMs.getAndSet(0),
+        latencyMaxMs = latencyMaxMs.getAndSet(0),
+    )
 
     /**
      * Rewrites [annexB] as AVCC in [avcc] and returns its length, or -1 when
@@ -315,7 +300,7 @@ class MirrorStream(
         header.copyInto(packet, 0)
         val startedAt = System.nanoTime()
         out.write(packet, 0, total)
-        blockedNanos += System.nanoTime() - startedAt
+        blockedNanos.addAndGet(System.nanoTime() - startedAt)
         bytesSent.addAndGet(total.toLong())
     }
 
@@ -358,9 +343,6 @@ class MirrorStream(
 
         /** A start code is at least 3 bytes, so units ≤ bytes / 3. */
         const val NAL_BYTES_PER_PREFIX = 3
-
-        /** 1000 ms without a frame means a sound-only session again. */
-        const val HEARTBEAT_IDLE_NANOS = 1_000_000_000L
 
         /** 75 ms playout lead, in 32.32 fixed point. */
         const val FRACTION_SCALE = 1L shl 32
