@@ -1,5 +1,6 @@
 package com.smurfiez.vaneglider.capture
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -77,6 +78,39 @@ class AlacEncoderTest {
 
     @Test
     fun `transient content stays under the redundancy block limit`() {
+        val out = ByteArray(AlacEncoder.MAX_FRAME_BYTES)
+        val n = AlacEncoder().encode(out, transientPcm())
+        assertTrue("transient frame too large: $n", n < 1024)
+    }
+
+    @Test
+    fun `reused encoder produces byte-identical output to fresh instances`() {
+        val frames = listOf(
+            ByteArray(352 * 2 * 2),
+            stereoSinePcm(),
+            noisePcm(),
+            independentNoisePcm(),
+            transientPcm(),
+            sinePcm(),
+            ByteArray(352 * 2 * 2),
+        )
+        val reused = AlacEncoder()
+        val reusedOut = ByteArray(AlacEncoder.MAX_FRAME_BYTES)
+        val freshOut = ByteArray(AlacEncoder.MAX_FRAME_BYTES)
+
+        for (pcm in frames) {
+            reusedOut.fill(0x5A)
+            freshOut.fill(0xA5.toByte())
+
+            val reusedLen = reused.encode(reusedOut, pcm)
+            val freshLen = AlacEncoder().encode(freshOut, pcm)
+
+            assertEquals(freshLen, reusedLen)
+            assertArrayEquals(freshOut.copyOf(freshLen), reusedOut.copyOf(reusedLen))
+        }
+    }
+
+    private fun transientPcm(): ByteArray {
         val pcm = ByteArray(352 * 2 * 2)
         for (sample in 0 until 352) {
             val left = if (sample % 20 < 10) 20000 else -20000
@@ -84,9 +118,7 @@ class AlacEncoderTest {
             writeLe16(pcm, sample * 4, left)
             writeLe16(pcm, sample * 4 + 2, right)
         }
-        val out = ByteArray(AlacEncoder.MAX_FRAME_BYTES)
-        val n = AlacEncoder().encode(out, pcm)
-        assertTrue("transient frame too large: $n", n < 1024)
+        return pcm
     }
 
     private fun sinePcm(): ByteArray {

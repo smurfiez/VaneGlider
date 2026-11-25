@@ -135,9 +135,10 @@ object ChaChaPolyCipher {
         internal val usingPlatform: Boolean get() = platform != null
 
         /**
-         * Seals [plaintext] into `out[outOffset, outOffset + plaintext.size + TAG_LEN)`
-         * under [nonce], authenticated over `aad[aadOffset, aadOffset + aadLength)`.
-         * Returns the sealed length; no buffer is allocated for the output.
+         * Seals `plaintext[0, plaintextLength)` into
+         * `out[outOffset, outOffset + plaintextLength + TAG_LEN)` under [nonce],
+         * authenticated over `aad[aadOffset, aadOffset + aadLength)`. Returns
+         * the sealed length; no buffer is allocated for the output.
          */
         @Suppress("LongParameterList") // one argument per buffer window; the offsets are the API
         fun seal(
@@ -148,22 +149,35 @@ object ChaChaPolyCipher {
             plaintext: ByteArray,
             out: ByteArray,
             outOffset: Int,
+            plaintextLength: Int = plaintext.size,
         ): Int {
             require(nonce.size == NONCE_LEN) { "Nonce must be $NONCE_LEN bytes, got ${nonce.size}" }
             require(aadOffset >= 0 && aadLength >= 0 && aadLength <= aad.size - aadOffset) {
                 "AAD window [$aadOffset, +$aadLength) does not fit ${aad.size} bytes"
             }
-            require(outOffset >= 0 && plaintext.size + TAG_LEN <= out.size - outOffset) {
-                "Need ${plaintext.size + TAG_LEN} bytes at $outOffset, buffer is ${out.size}"
+            require(plaintextLength in 0..plaintext.size) {
+                "Plaintext length $plaintextLength does not fit ${plaintext.size} bytes"
+            }
+            require(outOffset >= 0 && plaintextLength + TAG_LEN <= out.size - outOffset) {
+                "Need ${plaintextLength + TAG_LEN} bytes at $outOffset, buffer is ${out.size}"
             }
 
             val cipher = platform
             return if (cipher != null) {
                 cipher.init(Cipher.ENCRYPT_MODE, keySpec, IvParameterSpec(nonce))
                 if (aadLength > 0) cipher.updateAAD(aad, aadOffset, aadLength)
-                cipher.doFinal(plaintext, 0, plaintext.size, out, outOffset)
+                cipher.doFinal(plaintext, 0, plaintextLength, out, outOffset)
             } else {
-                sealWithBouncyCastle(nonce, aad, aadOffset, aadLength, plaintext, out, outOffset)
+                sealWithBouncyCastle(
+                    nonce,
+                    aad,
+                    aadOffset,
+                    aadLength,
+                    plaintext,
+                    plaintextLength,
+                    out,
+                    outOffset,
+                )
             }
         }
 
@@ -174,6 +188,7 @@ object ChaChaPolyCipher {
             aadOffset: Int,
             aadLength: Int,
             plaintext: ByteArray,
+            plaintextLength: Int,
             out: ByteArray,
             outOffset: Int,
         ): Int {
@@ -190,7 +205,7 @@ object ChaChaPolyCipher {
             // would reject frames the object API accepted.
             val engine = ChaCha20Poly1305()
             engine.init(true, AEADParameters(bcKey, TAG_LEN * 8, nonce, associated))
-            val written = engine.processBytes(plaintext, 0, plaintext.size, out, outOffset)
+            val written = engine.processBytes(plaintext, 0, plaintextLength, out, outOffset)
             return written + engine.doFinal(out, outOffset + written)
         }
     }

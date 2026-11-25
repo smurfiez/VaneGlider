@@ -73,6 +73,7 @@ class AudioPcmSource(
         }
     }.flowOn(Dispatchers.IO)
 
+    @SuppressLint("MissingPermission") // Playback capture is authorised by the projection.
     private fun createAudioRecord(): AudioRecord {
         val captureConfig = AudioPlaybackCaptureConfiguration.Builder(projection)
             .addMatchingUsage(AudioAttributes.USAGE_MEDIA)

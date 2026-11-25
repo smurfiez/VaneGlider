@@ -21,6 +21,9 @@ class AlacEncoder {
     private val residual = Array(CHANNELS) { IntArray(FRAME_SAMPLES) }
     private val candidate = IntArray(FRAME_SAMPLES)
     private val alternate = ByteArray(MAX_FRAME_BYTES)
+    private val predictorOrders = IntArray(CHANNELS)
+    private val coefficients = ShortArray(PREDICTION_MAX_ORDER)
+    private val bitWriter = BitWriter()
 
     /**
      * Encodes one [pcmBytes] frame (352 samples, interleaved stereo S16LE,
@@ -73,7 +76,6 @@ class AlacEncoder {
             coded[1][sample] = difference
         }
 
-        val predictorOrders = IntArray(CHANNELS)
         for (channel in 0 until CHANNELS) {
             predictorOrders[channel] = selectPredictor(
                 coded[channel],
@@ -82,20 +84,20 @@ class AlacEncoder {
             )
         }
 
-        val writer = BitWriter(out)
-        writer.write(1, 3) // TYPE_CPE
-        writer.write(0, 4) // elementInstanceTag
-        writer.write(0, 12)
-        writer.write(8, 4) // explicit sample count, no shifted bytes, compressed
-        writer.write(FRAME_SAMPLES.toLong(), 32)
-        writer.write(STEREO_SHIFT.toLong(), 8)
-        writer.write(weight.toLong(), 8)
-        writePredictorHeader(writer, predictorOrders[0])
-        writePredictorHeader(writer, predictorOrders[1])
-        writeEntropyBlock(writer, residual[0], CODED_CHANNEL_BITS)
-        writeEntropyBlock(writer, residual[1], CODED_CHANNEL_BITS)
-        writer.write(7, 3) // TYPE_END
-        return writer.flush()
+        bitWriter.reset(out)
+        bitWriter.write(1, 3) // TYPE_CPE
+        bitWriter.write(0, 4) // elementInstanceTag
+        bitWriter.write(0, 12)
+        bitWriter.write(8, 4) // explicit sample count, no shifted bytes, compressed
+        bitWriter.write(FRAME_SAMPLES.toLong(), 32)
+        bitWriter.write(STEREO_SHIFT.toLong(), 8)
+        bitWriter.write(weight.toLong(), 8)
+        writePredictorHeader(bitWriter, predictorOrders[0])
+        writePredictorHeader(bitWriter, predictorOrders[1])
+        writeEntropyBlock(bitWriter, residual[0], CODED_CHANNEL_BITS)
+        writeEntropyBlock(bitWriter, residual[1], CODED_CHANNEL_BITS)
+        bitWriter.write(7, 3) // TYPE_END
+        return bitWriter.flush()
     }
 
     private fun selectPredictor(samples: IntArray, residuals: IntArray, channelBits: Int): Int {
@@ -116,9 +118,9 @@ class AlacEncoder {
     private fun writePredictorHeader(writer: BitWriter, order: Int) {
         writer.write(PREDICTION_SHIFT.toLong(), 8) // mode=0, denominator shift=4
         writer.write(((4 shl 5) or order).toLong(), 8)
-        val coefficients = predictionCoefficients(order)
+        val initialCoefficients = INITIAL_COEFFICIENTS[order]
         for (coefficientIndex in 0 until order) {
-            writer.write((coefficients[coefficientIndex].toInt() and 0xFFFF).toLong(), 16)
+            writer.write((initialCoefficients[coefficientIndex].toInt() and 0xFFFF).toLong(), 16)
         }
     }
 
@@ -244,7 +246,7 @@ class AlacEncoder {
         for (sample in 1..warmup) {
             residuals[sample] = narrowSigned(samples[sample] - samples[sample - 1], CODED_CHANNEL_BITS)
         }
-        val coefficients = predictionCoefficients(order)
+        System.arraycopy(INITIAL_COEFFICIENTS[order], 0, coefficients, 0, order)
         for (sample in order + 1 until samples.size) {
             val base = samples[sample - order - 1]
             var weightedDifference = 0
@@ -274,20 +276,6 @@ class AlacEncoder {
                 }
             }
         }
-    }
-
-    private fun predictionCoefficients(order: Int): ShortArray {
-        val coefficients = ShortArray(PREDICTION_MAX_ORDER)
-        var combination = 1
-        for (tap in 0 until order) {
-            combination = combination * (order - tap) / (tap + 1)
-            var coefficient = combination * PREDICTION_SCALE
-            if (tap and 1 != 0) {
-                coefficient = -coefficient
-            }
-            coefficients[tap] = coefficient.toShort()
-        }
-        return coefficients
     }
 
     private fun riceParameter(history: Long): Long {
@@ -336,29 +324,37 @@ class AlacEncoder {
 
     /** Verbatim (uncompressed) ALAC element — smaller than compressed for noise. */
     private fun encodeVerbatim(out: ByteArray, pcmBytes: ByteArray): Int {
-        val writer = BitWriter(out)
-        writer.write(1, 3) // TYPE_CPE for stereo
-        writer.write(0, 4) // elementInstanceTag
-        writer.write(0, 12) // unused
-        writer.write(1, 1) // hasSize
-        writer.write(0, 2) // extraBytes (16-bit, no shift)
-        writer.write(1, 1) // verbatim
-        writer.write(FRAME_SAMPLES.toLong(), 32) // numSamples
+        bitWriter.reset(out)
+        bitWriter.write(1, 3) // TYPE_CPE for stereo
+        bitWriter.write(0, 4) // elementInstanceTag
+        bitWriter.write(0, 12) // unused
+        bitWriter.write(1, 1) // hasSize
+        bitWriter.write(0, 2) // extraBytes (16-bit, no shift)
+        bitWriter.write(1, 1) // verbatim
+        bitWriter.write(FRAME_SAMPLES.toLong(), 32) // numSamples
         for (sample in 0 until FRAME_SAMPLES * CHANNELS) {
             val offset = sample * 2
             val value = (pcmBytes[offset].toInt() and 0xFF) or
                 ((pcmBytes[offset + 1].toInt() and 0xFF) shl 8)
-            writer.write(value.toLong(), SAMPLE_BITS)
+            bitWriter.write(value.toLong(), SAMPLE_BITS)
         }
-        writer.write(7, 3) // TYPE_END
-        return writer.flush()
+        bitWriter.write(7, 3) // TYPE_END
+        return bitWriter.flush()
     }
 
     /** MSB-first bit packer, ported from doubletake's audio.go bitWriter. */
-    private class BitWriter(private val buf: ByteArray) {
+    private class BitWriter {
+        private var buf: ByteArray = EMPTY_BYTES
         private var pos = 0
         private var bitBuf: Long = 0
         private var bitPos = 0
+
+        fun reset(target: ByteArray) {
+            buf = target
+            pos = 0
+            bitBuf = 0L
+            bitPos = 0
+        }
 
         fun write(value: Long, nbits: Int) {
             var remaining = nbits
@@ -424,5 +420,23 @@ class AlacEncoder {
         private const val HISTORY_CLAMP = 0xffffL
         private const val RICE_LIMIT = 14L
         private const val ENTROPY_ESCAPE_PREFIX = 9L
+
+        private val EMPTY_BYTES = ByteArray(0)
+        private val INITIAL_COEFFICIENTS: Array<ShortArray> =
+            Array(PREDICTION_MAX_ORDER + 1) { order -> predictionCoefficients(order) }
+
+        private fun predictionCoefficients(order: Int): ShortArray {
+            val coeffs = ShortArray(PREDICTION_MAX_ORDER)
+            var combination = 1
+            for (tap in 0 until order) {
+                combination = combination * (order - tap) / (tap + 1)
+                var coefficient = combination * PREDICTION_SCALE
+                if (tap and 1 != 0) {
+                    coefficient = -coefficient
+                }
+                coeffs[tap] = coefficient.toShort()
+            }
+            return coeffs
+        }
     }
 }

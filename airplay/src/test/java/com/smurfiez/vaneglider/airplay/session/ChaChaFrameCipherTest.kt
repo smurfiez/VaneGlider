@@ -65,6 +65,21 @@ class ChaChaFrameCipherTest {
         assertTrue("frame 1 must not verify under frame 0's nonce", underFrameZero.isFailure)
     }
 
+    @Test
+    fun `sealInto with explicit plaintextLength seals only the prefix and matches exact array`() {
+        val exactCipher = ChaChaFrameCipher(secret, connectionId)
+        val sliceCipher = ChaChaFrameCipher(secret, connectionId)
+        val payload = byteArrayOf(10, 20, 30, 40, 50)
+        val oversized = payload + byteArrayOf(99, 98, 97, 96)
+
+        val expected = exactCipher.sealFrame(payload)
+        val out = ByteArray(4 + payload.size + sliceCipher.overhead + 4) { 0x5A }
+        val sealed = sliceCipher.sealInto(oversized, header, out, 4, payload.size)
+
+        assertArrayEquals(expected, out.copyOfRange(4, 4 + sealed))
+        assertArrayEquals(payload, ChaChaPolyCipher.open(key, nonce(0), out.copyOfRange(4, 4 + sealed), header))
+    }
+
     private companion object {
         /** Nonce bytes [0, 4) are zero; the counter fills the rest. */
         const val NONCE_PREFIX = 4

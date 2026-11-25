@@ -123,4 +123,28 @@ class ChaChaPolyCipherTest {
             ChaChaPolyCipher.nonce(0x0BADL),
         )
     }
+
+    @Test
+    fun `sealing a prefix slice matches sealing an exact-sized array on both providers`() {
+        val sliceLengths = listOf(0, 1, 16, 128, 1024)
+        val guard = 0x5A.toByte()
+        for (length in sliceLengths) {
+            // Fill past `length` with distinct bytes so reading beyond
+            // `plaintextLength` immediately diverges from the exact-sized seal.
+            val oversized = plain.copyOf(plain.size)
+            for (i in length until oversized.size) {
+                oversized[i] = (i xor 0xA5).toByte()
+            }
+            for ((index, sealer) in listOf(reference(), platform()).withIndex()) {
+                val nonce = ChaChaPolyCipher.nonce((100L + length) * 2 + index)
+                val expected = seal(reference(), nonce, headerAad, length)
+                val out = ByteArray(2 + length + ChaChaPolyCipher.TAG_LEN + 2) { guard }
+                val written = sealer.seal(nonce, headerAad, 0, headerAad.size, oversized, out, 2, length)
+                assertEquals(length + ChaChaPolyCipher.TAG_LEN, written)
+                assertArrayEquals("provider=$index length=$length", expected, out.copyOfRange(2, 2 + written))
+                assertTrue("prefix touched", out.copyOfRange(0, 2).all { it == guard })
+                assertTrue("suffix touched", out.copyOfRange(2 + written, out.size).all { it == guard })
+            }
+        }
+    }
 }

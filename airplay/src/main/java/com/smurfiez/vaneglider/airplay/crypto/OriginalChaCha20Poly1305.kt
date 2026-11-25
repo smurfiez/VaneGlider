@@ -9,9 +9,10 @@ import org.bouncycastle.crypto.params.KeyParameter
  * Poly1305 key taken from the counter-0 block. Neither Android's nor Bouncy
  * Castle's IETF-only AEADs produce this layout, so the core function lives here.
  *
- * This is the one-shot oracle the tests check the fast [Sealer] against; the
- * production audio path seals through that sealer directly. This class holds one
- * shared sealer and is therefore not thread-safe.
+ * This is the one-shot convenience wrapper that delegates to [Sealer]; the
+ * production audio path seals through [Sealer] directly, and external
+ * Go/doubletake golden vectors in `OriginalChaCha20Poly1305Test` validate both.
+ * Holds one shared sealer and is therefore not thread-safe.
  */
 class OriginalChaCha20Poly1305(key: ByteArray, nonce: ByteArray) {
 

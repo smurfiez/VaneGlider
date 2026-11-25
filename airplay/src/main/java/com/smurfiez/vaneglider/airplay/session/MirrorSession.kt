@@ -697,6 +697,17 @@ class MirrorSession(
             while (isActive && client.isConnected) {
                 delay(FEEDBACK_INTERVAL_MS)
                 if (!isActive || !client.isConnected) break
+                runCatching { client.send(SetupRequests.feedback()) }
+                    .onFailure { error ->
+                        feedbackFailures++
+                        if (feedbackFailures >= 2) {
+                            Log.w(TAG, "Feedback failed twice; receiver is gone", error)
+                            onConnectionLost?.invoke(error)
+                            return@launch
+                        }
+                        Log.w(TAG, "Feedback request failed ($feedbackFailures)", error)
+                    }
+                    .onSuccess { feedbackFailures = 0 }
                 // Modern sessions also carry the data-channel keepalive the
                 // reference sends every second (doubletake dataHeartbeatLoop).
                 // A receiver that stopped mirroring resets this TCP channel; the
@@ -709,17 +720,6 @@ class MirrorSession(
                         onConnectionLost?.invoke(error)
                         return@launch
                     }
-                runCatching { client.send(SetupRequests.feedback()) }
-                    .onFailure { error ->
-                        feedbackFailures++
-                        if (feedbackFailures >= 2) {
-                            Log.w(TAG, "Feedback failed twice; receiver is gone", error)
-                            onConnectionLost?.invoke(error)
-                            return@launch
-                        }
-                        Log.w(TAG, "Feedback request failed ($feedbackFailures)", error)
-                    }
-                    .onSuccess { feedbackFailures = 0 }
             }
         }
     }

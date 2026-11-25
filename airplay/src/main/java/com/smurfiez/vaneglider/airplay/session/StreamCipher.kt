@@ -21,6 +21,10 @@ class StreamCipher private constructor(private val cipher: Cipher) {
     /** CTR is a stream cipher; one instance preserves the counter. */
     fun encrypt(payload: ByteArray): ByteArray = cipher.update(payload)
 
+    /** Encrypts `src[0, length)` directly into `dst[dstOffset, ...)`. */
+    fun encryptInto(src: ByteArray, length: Int, dst: ByteArray, dstOffset: Int): Int =
+        cipher.update(src, 0, length, dst, dstOffset)
+
     companion object {
         private const val AES_KEY_BYTES = 16
 

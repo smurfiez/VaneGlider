@@ -7,6 +7,8 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * The TCP connection that carries mirrored video.
@@ -23,7 +25,7 @@ import java.util.concurrent.atomic.AtomicLong
  *    length, header[5] flags IDR frames and header[40:48] carries the
  *    receiver's PTP timeline.
  *
- * Packet writes are serialised on this object's monitor and leave as a single
+ * Packet writes are serialised on [writeLock] and leave as a single
  * `[header | payload]` write, so the heartbeat loop and the video pump can
  * share the one packet buffer without a beat landing between a header and its
  * payload. The cipher counters and the receiver's frame ordering still belong
@@ -52,6 +54,9 @@ class MirrorStream(
     private var socket: Socket? = null
     private var output: OutputStream? = null
 
+    /** Serialises packet assembly + socket writes without stalling heartbeats on a dead peer. */
+    private val writeLock = ReentrantLock()
+
     /** `[128-byte header | payload]` for the packet in flight; grown, never shrunk. */
     private var packet = ByteArray(INITIAL_PACKET_BYTES)
 
@@ -68,9 +73,9 @@ class MirrorStream(
     private val bytesSent = AtomicLong(0)
     private val framesSent = AtomicLong(0)
 
-    // Pipeline telemetry. Atomics, not plain fields under the write monitor: the
+    // Pipeline telemetry. Atomics, not plain fields under [writeLock]: the
     // owner's ticker drains them while a write may be blocked on a dead peer,
-    // and waiting for that monitor would freeze the statistics and the
+    // and waiting for that lock would freeze the statistics and the
     // notification with it. The window can therefore be off by one frame at the
     // drain boundary, which the averages do not care about.
     private val frames = AtomicLong(0)
@@ -122,51 +127,52 @@ class MirrorStream(
      * modern (doubletake sendCodecFrame) adds the 0x16 H.264 format descriptor
      * and describes only the encoded raster.
      */
-    @Synchronized
     fun sendCodecConfig(parameterSets: ParameterSets, width: Int, height: Int, presentationTimeUs: Long) {
-        val payload = parameterSets.toAvcDecoderConfig() // not encrypted
-        val timestampNtp = clock.fromPresentationTimeUs(presentationTimeUs)
-        if (!modern) configTimestampNtp = timestampNtp
-        if (modern) {
-            MirrorPacket.modernCodecConfigHeaderInto(header, 0, payload.size, timestampNtp, width, height)
-        } else {
-            MirrorPacket.codecConfigHeaderInto(header, 0, payload.size, timestampNtp, width, height)
+        writeLock.withLock {
+            val payload = parameterSets.toAvcDecoderConfig() // not encrypted
+            val timestampNtp = clock.fromPresentationTimeUs(presentationTimeUs)
+            if (!modern) configTimestampNtp = timestampNtp
+            if (modern) {
+                MirrorPacket.modernCodecConfigHeaderInto(header, 0, payload.size, timestampNtp, width, height)
+            } else {
+                MirrorPacket.codecConfigHeaderInto(header, 0, payload.size, timestampNtp, width, height)
+            }
+            ensurePacketCapacity(MirrorPacket.HEADER_SIZE + payload.size)
+            payload.copyInto(packet, MirrorPacket.HEADER_SIZE)
+            writeHeaderAndPayload(payload.size)
+            Log.i(TAG, "Sent avcC config (${payload.size} bytes) for ${width}x$height, ts=$timestampNtp")
         }
-        ensurePacketCapacity(MirrorPacket.HEADER_SIZE + payload.size)
-        payload.copyInto(packet, MirrorPacket.HEADER_SIZE)
-        writeHeaderAndPayload(payload.size)
-        Log.i(TAG, "Sent avcC config (${payload.size} bytes) for ${width}x$height, ts=$timestampNtp")
     }
 
     /** Sends one access unit. [annexB] is MediaCodec output, converted here to AVCC. */
-    @Synchronized
     fun sendVideoFrame(annexB: ByteArray, presentationTimeUs: Long) {
-        val repackStartedAt = System.nanoTime()
-        val repacked = repackIntoBuffer(annexB)
-        repackNanos.addAndGet(System.nanoTime() - repackStartedAt)
-        if (repacked <= 0) return
+        writeLock.withLock {
+            val repackStartedAt = System.nanoTime()
+            val repacked = repackIntoBuffer(annexB)
+            repackNanos.addAndGet(System.nanoTime() - repackStartedAt)
+            if (repacked <= 0) return
 
-        // Both ciphers take a whole array, and the staging buffer is sized for
-        // the largest frame seen — hand them the frame alone.
-        // shortcut: one right-sized copy per frame; a length parameter on
-        // ChaChaFrameCipher.sealInto / StreamCipher.encrypt would drop it.
-        val avcc = if (avccBuffer.size == repacked) avccBuffer else avccBuffer.copyOf(repacked)
+            if (modern) {
+                sendModernFrame(avccBuffer, repacked, presentationTimeUs)
+            } else {
+                sendLegacyFrame(avccBuffer, repacked, presentationTimeUs)
+            }
 
-        if (modern) sendModernFrame(avcc, presentationTimeUs) else sendLegacyFrame(avcc, presentationTimeUs)
-
-        framesSent.incrementAndGet()
-        frames.incrementAndGet()
-        // Encode-to-wire: the frame's capture stamp against the moment its last
-        // byte reached the socket.
-        val latencyMs = (System.nanoTime() - presentationTimeUs * NANOS_PER_MICRO) / NANOS_PER_MILLI
-        latencySumMs.addAndGet(latencyMs)
-        latencyMaxMs.accumulateAndGet(latencyMs) { current, sample -> maxOf(current, sample) }
+            framesSent.incrementAndGet()
+            frames.incrementAndGet()
+            // Encode-to-wire: the frame's capture stamp against the moment its last
+            // byte reached the socket.
+            val latencyMs = ((System.nanoTime() - presentationTimeUs * NANOS_PER_MICRO) / NANOS_PER_MILLI)
+                .coerceAtLeast(0L)
+            latencySumMs.addAndGet(latencyMs)
+            latencyMaxMs.accumulateAndGet(latencyMs) { current, sample -> maxOf(current, sample) }
+        }
     }
 
     /** Modern payload: one-pass AVCC, sealed into the packet buffer, header as AAD. */
-    private fun sendModernFrame(avcc: ByteArray, presentationTimeUs: Long) {
+    private fun sendModernFrame(avcc: ByteArray, length: Int, presentationTimeUs: Long) {
         val sealer = chacha
-        val sealedSize = avcc.size + (sealer?.overhead ?: 0)
+        val sealedSize = length + (sealer?.overhead ?: 0)
         // 75 ms playout lead (doubletake latencies.video): stamps frames
         // slightly into the receiver's future so late-arriving packets
         // still render on time.
@@ -176,57 +182,65 @@ class MirrorStream(
             0,
             sealedSize,
             timestampNtp,
-            keyframe = sealer != null && NaluRepacker.avccContainsIdr(avcc),
+            keyframe = NaluRepacker.avccContainsIdr(avcc, length),
             timelineId = timelineId,
         )
         ensurePacketCapacity(MirrorPacket.HEADER_SIZE + sealedSize)
 
         val cryptoStartedAt = System.nanoTime()
         val sealed = if (sealer != null) {
-            sealer.sealInto(avcc, header, packet, MirrorPacket.HEADER_SIZE)
+            sealer.sealInto(avcc, header, packet, MirrorPacket.HEADER_SIZE, length)
         } else {
-            avcc.copyInto(packet, MirrorPacket.HEADER_SIZE)
-            avcc.size
+            avcc.copyInto(packet, MirrorPacket.HEADER_SIZE, 0, length)
+            length
         }
         cryptoNanos.addAndGet(System.nanoTime() - cryptoStartedAt)
         writeHeaderAndPayload(sealed)
     }
 
-    /** Legacy payload: AES-CTR over the whole AVCC array, straight to the wire. */
-    private fun sendLegacyFrame(avcc: ByteArray, presentationTimeUs: Long) {
+    /** Legacy payload: AES-CTR over `avcc[0, length)`, straight into [packet]. */
+    private fun sendLegacyFrame(avcc: ByteArray, length: Int, presentationTimeUs: Long) {
+        ensurePacketCapacity(MirrorPacket.HEADER_SIZE + length)
         val cryptoStartedAt = System.nanoTime()
-        val encrypted = cipher!!.encrypt(avcc)
+        val encryptedBytes = cipher!!.encryptInto(avcc, length, packet, MirrorPacket.HEADER_SIZE)
         cryptoNanos.addAndGet(System.nanoTime() - cryptoStartedAt)
         // The receiver drops the SPS/PPS unless the first video frame carries the
         // exact same timestamp as the codec config, so force it for the first one.
         val timestampNtp = configTimestampNtp?.also { configTimestampNtp = null }
             ?: clock.fromPresentationTimeUs(presentationTimeUs)
-        MirrorPacket.videoHeaderInto(header, 0, encrypted.size, timestampNtp)
-        ensurePacketCapacity(MirrorPacket.HEADER_SIZE + encrypted.size)
-        encrypted.copyInto(packet, MirrorPacket.HEADER_SIZE)
-        writeHeaderAndPayload(encrypted.size)
+        MirrorPacket.videoHeaderInto(header, 0, encryptedBytes, timestampNtp)
+        writeHeaderAndPayload(encryptedBytes)
     }
 
     /**
      * Modern data-channel keepalive (doubletake dataHeartbeatLoop shape).
      *
      * Sent on every feedback tick, sound-only and video alike: it is what the
-     * reference sender does, the header and payload leave as one write under the
-     * monitor, so the beat no longer races a frame.
+     * reference sender does, the header and payload leave as one write under
+     * [writeLock], so the beat no longer races a frame. Uses `tryLock()` so a
+     * blocked video TCP write on a dead receiver never stalls the feedback loop.
      */
-    @Synchronized
     fun sendHeartbeat() {
         if (!modern) return
-        MirrorPacket.modernHeartbeatHeaderInto(header, 0)
-        ensurePacketCapacity(MirrorPacket.HEADER_SIZE)
-        writeHeaderAndPayload(0)
+        if (!writeLock.tryLock()) return
+        try {
+            MirrorPacket.modernHeartbeatHeaderInto(header, 0)
+            ensurePacketCapacity(MirrorPacket.HEADER_SIZE)
+            writeHeaderAndPayload(0)
+        } finally {
+            writeLock.unlock()
+        }
     }
 
-    @Synchronized
     fun sendHeartbeatLegacy() {
-        MirrorPacket.heartbeatHeaderInto(header, 0)
-        ensurePacketCapacity(MirrorPacket.HEADER_SIZE)
-        writeHeaderAndPayload(0)
+        if (!writeLock.tryLock()) return
+        try {
+            MirrorPacket.heartbeatHeaderInto(header, 0)
+            ensurePacketCapacity(MirrorPacket.HEADER_SIZE)
+            writeHeaderAndPayload(0)
+        } finally {
+            writeLock.unlock()
+        }
     }
 
     /** One window of pipeline telemetry, drained and reset by the owner's ticker. */
@@ -258,9 +272,9 @@ class MirrorStream(
 
     /**
      * Returns and clears the accumulators. Deliberately lock-free: the caller is
-     * a 500 ms ticker, and a write blocked on a dead peer holds the write
-     * monitor for as long as the kernel's retransmit timeout. The window may be
-     * off by one frame at the boundary, which is noise for a rate estimate.
+     * a 500 ms ticker, and a write blocked on a dead peer holds [writeLock] for
+     * as long as the kernel's retransmit timeout. The window may be off by one
+     * frame at the boundary, which is noise for a rate estimate.
      */
     fun drainPipelineStatistics(): PipelineStatistics = PipelineStatistics(
         frames = frames.getAndSet(0),
@@ -290,10 +304,9 @@ class MirrorStream(
     }
 
     /**
-     * Header plus payload as one write, under the monitor. Only the `write()` is
+     * Header plus payload as one write, under [writeLock]. Only the `write()` is
      * timed: repacking and sealing are our work, the block is the link's.
      */
-    @Synchronized
     private fun writeHeaderAndPayload(payloadSize: Int) {
         val out = output ?: throw IllegalStateException("Data connection is not open")
         val total = MirrorPacket.HEADER_SIZE + payloadSize

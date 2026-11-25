@@ -40,17 +40,23 @@ class ChaChaFrameCipher(sharedSecret: ByteArray, streamConnectionId: Long) {
     }
 
     /**
-     * Seals [plaintext] into `out[outOffset, ...)` under [header] as AAD and
-     * returns the sealed length. Advances the frame counter once.
+     * Seals `plaintext[0, plaintextLength)` into `out[outOffset, ...)` under
+     * [header] as AAD and returns the sealed length. Advances the frame counter once.
      */
-    fun sealInto(plaintext: ByteArray, header: ByteArray, out: ByteArray, outOffset: Int): Int {
+    fun sealInto(
+        plaintext: ByteArray,
+        header: ByteArray,
+        out: ByteArray,
+        outOffset: Int,
+        plaintextLength: Int = plaintext.size,
+    ): Int {
         var counter = nonceCounter
         for (i in NONCE_PREFIX until ChaChaPolyCipher.NONCE_LEN) {
             nonce[i] = (counter and 0xFF).toByte()
             counter = counter ushr 8
         }
         nonceCounter++
-        return sealer.seal(nonce, header, 0, header.size, plaintext, out, outOffset)
+        return sealer.seal(nonce, header, 0, header.size, plaintext, out, outOffset, plaintextLength)
     }
 
     companion object {
