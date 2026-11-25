@@ -490,7 +490,10 @@ class AirPlay2AudioStream(
     control: AudioControlServer,
 ) : Closeable {
 
-    private val socket = DatagramSocket()
+    private val socket = DatagramSocket().also {
+        // DSCP EF / WMM voice: audio is the latency-critical half of a cast.
+        runCatching { it.trafficClass = TRAFFIC_CLASS_EF }
+    }
     private val cipherKey = cipherKey.copyOf()
     private val seq = AtomicInteger(Random.nextInt(SEQ_SPACE))
 
@@ -659,5 +662,8 @@ class AirPlay2AudioStream(
         private const val SYNC_PACKET_TYPE = 0xD4
         private const val NONCE_TAIL_BYTES = 8
         private const val SEQ_SPACE = 0x10000
+
+        /** DSCP EF / WMM voice. */
+        private const val TRAFFIC_CLASS_EF = 0xB8
     }
 }

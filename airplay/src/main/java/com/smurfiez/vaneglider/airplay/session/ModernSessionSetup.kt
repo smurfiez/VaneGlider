@@ -61,6 +61,8 @@ internal class ModernSessionSetup(
         timingPort: Int,
         sharedSecret: ByteArray,
         videoEnabled: Boolean = true,
+        /** Session target; sizes the video socket's send buffer. */
+        targetBitRateBps: Int,
     ): SetupResult {
         val control = sendControlSetup(pairing, timingPort)
         configureMediaClock(control.response, control.timing)
@@ -103,6 +105,7 @@ internal class ModernSessionSetup(
                 timelineId = clock.ptpTimelineId(),
                 modern = true,
                 clock = clock,
+                targetBitRateBps = targetBitRateBps,
             )
         }
 

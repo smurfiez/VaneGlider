@@ -38,6 +38,8 @@ class TimingServer : AutoCloseable {
     fun start() {
         check(socket == null) { "Already started" }
         val s = DatagramSocket(0)
+        // DSCP EF / WMM voice: the receiver's timing poll is latency-critical.
+        runCatching { s.trafficClass = TRAFFIC_CLASS_EF }
         socket = s
         running.set(true)
         thread = Thread({ receiveLoop(s) }, "kite-timing").apply {
@@ -98,5 +100,8 @@ class TimingServer : AutoCloseable {
         const val RESPONSE_SIZE = 128
         const val NANOS_PER_SECOND = 1_000_000_000L
         const val SECONDS_1900_TO_1970 = 2_208_988_800L
+
+        /** DSCP EF / WMM voice. */
+        const val TRAFFIC_CLASS_EF = 0xB8
     }
 }

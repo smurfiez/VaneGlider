@@ -70,6 +70,16 @@ class ScreenEncoder(
     @Volatile
     var onDimensionsChanged: ((width: Int, height: Int) -> Unit)? = null
 
+    /**
+     * Invoked on the encoder thread when a frame could not be handed to the
+     * collector because the pipeline was full. Without it the drop is silent,
+     * and a discarded P-frame leaves the receiver referencing a picture it
+     * never received. Wrapped in `runCatching` at the call site: a throwing
+     * callback must never escape into the codec thread.
+     */
+    @Volatile
+    var onFrameDropped: (() -> Unit)? = null
+
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayChanged(displayId: Int) {
             val current = displayManager?.getDisplay(Display.DEFAULT_DISPLAY) ?: return
@@ -122,7 +132,13 @@ class ScreenEncoder(
                 try {
                     val buffer = codec.getOutputBuffer(index)
                     if (buffer != null && info.size > 0) {
-                        emit(buffer, info)?.let { trySend(it) }
+                        emit(buffer, info)?.let { frame ->
+                            // trySend fails instead of suspending on a codec
+                            // thread; tell the sender so it can ask for an IDR.
+                            if (!trySend(frame).isSuccess) {
+                                runCatching { onFrameDropped?.invoke() }
+                            }
+                        }
                     }
                 } catch (e: IllegalStateException) {
                     Log.w(TAG, "Output buffer $index went away", e)

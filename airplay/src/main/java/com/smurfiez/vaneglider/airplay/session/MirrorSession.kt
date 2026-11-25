@@ -54,6 +54,8 @@ class MirrorSession(
     private val receiver: AirPlayReceiver,
     private val credentialStore: CredentialStore,
     private val clientName: String,
+    /** Session target, used to size the video socket's send buffer. */
+    private val targetBitRateBps: Int,
 ) : Closeable {
 
     /** Asked for the PIN on screen. Returning null aborts pairing. */
@@ -218,6 +220,7 @@ class MirrorSession(
                     timing.port,
                     keys?.sharedSecret ?: ByteArray(0),
                     videoEnabled = videoEnabled,
+                    targetBitRateBps = targetBitRateBps,
                 )
                 modernSetup = setup
                 dataStream = result.stream
@@ -616,6 +619,7 @@ class MirrorSession(
             port = dataPort,
             cipher = buildCipher(streamConnectionId, streamKey),
             clock = clock,
+            targetBitRateBps = targetBitRateBps,
         )
     }
 
@@ -801,13 +805,18 @@ class MirrorSession(
     }
 
     /**
-     * Recomputes the send rate from the bytes moved since the last call.
+     * Recomputes the send rate from the bytes moved since the last call and
+     * folds the video pipeline's telemetry into the log line.
      *
      * A rate says something a running total does not: whether the link is
      * keeping up right now. Audio counts toward it too, since both streams
      * share the same Wi-Fi.
+     *
+     * @param pipeline what the stream drained since the previous call. The
+     *   caller owns the window (it drains twice as often for the bitrate
+     *   controller) and sums those windows before handing them over.
      */
-    fun refreshStatistics() {
+    fun refreshStatistics(pipeline: MirrorStream.PipelineStatistics? = null) {
         val current = _state.value
         if (current !is SessionState.Mirroring && current !is SessionState.StreamingAudio) return
         // Sound-only sessions have no video channel; a video-only session has no
@@ -838,12 +847,13 @@ class MirrorSession(
         // doubletake-style periodic sender report, one per stats window.
         Log.i(
             TAG,
-            "[TX] video=%s frames=%d audio=%s packets=%d total=%.2f Mbps".format(
+            "[TX] video=%s frames=%d audio=%s packets=%d total=%.2f Mbps%s".format(
                 formatKbps((videoBytes - lastVideoBytes) * 8 * NANOS_PER_SECOND / elapsedNanos / 1000),
-                stream?.statistics?.frames ?: 0,
+                pipeline?.frames ?: 0L,
                 formatKbps((audioBytes - lastAudioBytes) * 8 * NANOS_PER_SECOND / elapsedNanos / 1000),
                 audioStream?.statistics?.packets ?: 0L,
                 kilobitsPerSecond / 1000.0,
+                pipeline.textOrEmpty(elapsedNanos),
             ),
         )
         lastVideoBytes = videoBytes
@@ -937,6 +947,29 @@ class MirrorSession(
 
 /** Result of the FairPlay handshake: the shared AES key plus the wrapped form. */
 internal class FairPlayKeys(val aeskey: ByteArray, val eiv: ByteArray, val ekey: ByteArray)
+
+/**
+ * The video-pipeline half of the `[TX]` line:
+ * " dropped=3 | latency avg=12 max=40 ms | repack+crypto=41 us | write=380 us | blocked=7%",
+ * or empty when no video frame was sent or dropped in the window.
+ */
+private fun MirrorStream.PipelineStatistics?.textOrEmpty(elapsedNanos: Long): String {
+    if (this == null) return ""
+    val dropped = if (droppedFrames == 0L) "" else " dropped=%d".format(droppedFrames)
+    val details = if (frames == 0L) {
+        ""
+    } else {
+        val blockedPercent = if (elapsedNanos > 0) blockedNanos * 100 / elapsedNanos else 0
+        " | latency avg=%d max=%d ms | repack+crypto=%d us | write=%d us | blocked=%d%%".format(
+            latencySumMs / frames,
+            latencyMaxMs,
+            (repackNanos + cryptoNanos) / frames / 1_000,
+            blockedNanos / frames / 1_000,
+            blockedPercent,
+        )
+    }
+    return dropped + details
+}
 
 /** Convenience accessor used while reading receiver capability plists. */
 internal fun PlistValue?.dictValue(key: String): PlistValue? = asDict()?.get(key)

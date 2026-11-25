@@ -11,9 +11,11 @@ import android.content.pm.ServiceInfo
 import android.media.AudioManager
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.Process
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
@@ -32,6 +34,7 @@ import com.smurfiez.vaneglider.airplay.pairing.PairingException
 import com.smurfiez.vaneglider.airplay.pairing.TlvError
 import com.smurfiez.vaneglider.airplay.session.AirPlay2Session
 import com.smurfiez.vaneglider.airplay.session.MirrorSession
+import com.smurfiez.vaneglider.airplay.session.MirrorStream
 import com.smurfiez.vaneglider.airplay.session.NaluRepacker
 import com.smurfiez.vaneglider.airplay.session.PasswordRequiredException
 import com.smurfiez.vaneglider.airplay.session.RaopAudioStream
@@ -51,6 +54,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Runs the mirroring session in the foreground.
@@ -65,6 +71,15 @@ class MirrorService : Service() {
     private var sessionJob: Job? = null
     private var metricJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+
+    /**
+     * One thread each for the video and audio send loops, so the priority set
+     * at the top of each loop holds for its resumptions too. Views of the IO
+     * pool: no thread is created that would need shutting down.
+     */
+    private val videoDispatcher by lazy { Dispatchers.IO.limitedParallelism(1) }
+    private val audioDispatcher by lazy { Dispatchers.IO.limitedParallelism(1) }
 
     private var projection: MediaProjection? = null
     private var encoder: ScreenEncoder? = null
@@ -384,6 +399,8 @@ class MirrorService : Service() {
             // The user-visible device name ("Henry's Phone"), not the model —
             // receivers show this in their AirPlay prompts.
             clientName = deviceName(),
+            // Sizes the video socket's send buffer; the encoder's real target.
+            targetBitRateBps = format.bitRate,
         )
         session = mirrorSession
         // The receiver stopped mirroring (closed its data channel): end the
@@ -460,7 +477,9 @@ class MirrorService : Service() {
 
             // Start audio feed before video so priming packets arrive first.
             audioJob = audioEncoder?.let { audio ->
-                scope.launch {
+                scope.launch(audioDispatcher) {
+                    // Urgent audio: the pump must win over capture housekeeping.
+                    runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO) }
                     try {
                         pumpAudio(audio, mirrorSession)
                     } catch (e: Exception) {
@@ -469,37 +488,104 @@ class MirrorService : Service() {
                 }
             }
 
-            // Statistics ticker; cheap enough to run while mirroring.
+            // Auto mode adapts; a manual bitrate is the user's decision and a
+            // rotation rebuild re-derives its own target from the new geometry.
+            val adaptive = if (bitRateOverride == null && !skipVideo) AdaptiveBitRate(format.bitRate) else null
+
+            // Encoder-side drops (ScreenEncoder's channel was full) never reach
+            // the stream, so the service counts them for the [TX] line, and
+            // keeps sending slices off the air until the requested IDR lands.
+            val droppedFrames = AtomicLong(0)
+            val awaitingKeyFrame = AtomicBoolean(false)
+
+            // One ticker, two cadences: the bitrate controller wants a 500 ms
+            // window, the [TX] line and the notification update once a second.
             scope.launch {
+                var windowStartedAt = System.nanoTime()
+                var window = MirrorStream.PipelineStatistics.ZERO
+                var ticks = 0L
                 while (isActive) {
-                    delay(STATS_INTERVAL_MS)
-                    mirrorSession.refreshStatistics()
+                    delay(ABR_WINDOW_MS)
+                    val drained = stream?.drainPipelineStatistics() ?: MirrorStream.PipelineStatistics.ZERO
+                    val now = System.nanoTime()
+                    val windowNanos = now - windowStartedAt
+                    windowStartedAt = now
+                    // The socket is the only bandwidth sensor this protocol
+                    // offers: a blocked write is a link that cannot keep up.
+                    val blockedFraction = if (windowNanos > 0) {
+                        drained.blockedNanos.toDouble() / windowNanos
+                    } else {
+                        0.0
+                    }
+                    adaptive?.let { controller ->
+                        val ceiling = VideoFormat.defaultBitRate(liveWidth, liveHeight, format.frameRate)
+                        controller.onWindow(blockedFraction, ceiling)?.let { bps ->
+                            screenEncoder?.setBitRate(bps)
+                            Log.i(
+                                TAG,
+                                "[BITRATE] writes blocked ${(blockedFraction * 100).toInt()}% of the window " +
+                                    "-> ${bps / 1_000_000.0} Mbps",
+                            )
+                        }
+                    }
+                    window += drained
+                    if (++ticks % STATS_TICKS == 0L) {
+                        // Publishing the new rate is what refreshes the notification.
+                        // The encoder's drops are counted here, not by the stream.
+                        mirrorSession.refreshStatistics(window.copy(droppedFrames = droppedFrames.getAndSet(0)))
+                        window = MirrorStream.PipelineStatistics.ZERO
+                    }
                 }
             }
 
             // Sound-only has no encoder; the session lives on its audio stream
             // and the feedback/heartbeat loops inside MirrorSession.
             if (screenEncoder != null && stream != null) {
-                var sentConfig = false
-                screenEncoder.frames()
-                    .buffer(FRAME_BUFFER, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
-                    .collect { frame ->
-                        if (frame.isCodecConfig) {
-                            // avcC has to arrive before any slice or the receiver drops everything.
-                            val sets = NaluRepacker.parseParameterSets(frame.data)
-                            if (sets == null) {
-                                Log.e(TAG, "Codec config had no SPS/PPS pair; cannot start the decoder")
+                // A frame the encoder could not hand over corrupts every later
+                // P-frame, so ask for a fresh IDR and hold slices until it lands.
+                screenEncoder.onFrameDropped = {
+                    // One log line per burst: the callback fires per frame while
+                    // the pipeline stays full.
+                    val firstOfBurst = awaitingKeyFrame.compareAndSet(false, true)
+                    droppedFrames.incrementAndGet()
+                    screenEncoder.requestKeyFrame()
+                    if (firstOfBurst) {
+                        Log.i(TAG, "[TX] dropped=${droppedFrames.get()} encoder queue full; requesting IDR")
+                    }
+                }
+                // Its own thread at display priority: the socket write is the
+                // whole cost of a frame and must not queue behind the service.
+                withContext(videoDispatcher) {
+                    runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY) }
+                    var sentConfig = false
+                    screenEncoder.frames()
+                        // Suspending buffer instead of drop-oldest: the encoder is
+                        // throttled by the socket rather than losing a P-frame that
+                        // later frames reference (or the codec config itself).
+                        .buffer(FRAME_BUFFER)
+                        .collect { frame ->
+                            if (frame.isCodecConfig) {
+                                // avcC has to arrive before any slice or the receiver drops everything.
+                                val sets = NaluRepacker.parseParameterSets(frame.data)
+                                if (sets == null) {
+                                    Log.e(TAG, "Codec config had no SPS/PPS pair; cannot start the decoder")
+                                    return@collect
+                                }
+                                // liveWidth/Height, not `format`: rotation may have swapped
+                                // the geometry since the session started.
+                                stream.sendCodecConfig(sets, liveWidth, liveHeight, frame.presentationTimeUs)
+                                sentConfig = true
                                 return@collect
                             }
-                            // liveWidth/Height, not `format`: rotation may have swapped
-                            // the geometry since the session started.
-                            stream.sendCodecConfig(sets, liveWidth, liveHeight, frame.presentationTimeUs)
-                            sentConfig = true
-                            return@collect
+                            if (!sentConfig) return@collect // Wait for config; slices before it are useless.
+                            if (awaitingKeyFrame.get()) {
+                                // These slices reference the picture that was dropped.
+                                if (!frame.isKeyFrame) return@collect
+                                awaitingKeyFrame.set(false)
+                            }
+                            stream.sendVideoFrame(frame.data, frame.presentationTimeUs)
                         }
-                        if (!sentConfig) return@collect // Wait for config; slices before it are useless.
-                        stream.sendVideoFrame(frame.data, frame.presentationTimeUs)
-                    }
+                }
             } else {
                 // Park the coroutine for the session's lifetime; the audio pump
                 // and MirrorSession's feedback loop keep everything alive.
@@ -521,23 +607,12 @@ class MirrorService : Service() {
     }
 
     private suspend fun pumpAudio(encoder: AudioFrameSource, session: MirrorSession) {
-        // Modern (macOS) sessions stream ChaCha-sealed AAC-ELD over their own
-        // RTP sender; legacy receivers use the AES-CBC AudioStream.
+        // Modern (macOS) sessions stream ChaCha-sealed ALAC over their own RTP
+        // sender; legacy receivers use the AES-CBC AudioStream. The modern
+        // stream owns its once-per-second TimeAnnounce thread.
         session.modernAudio?.let { modern ->
-            // Refresh the audio TimeAnnounce once per second (doubletake's
-            // sync ticker) so the receiver keeps the RTP↔timeline mapping.
-            val syncJob = scope.launch {
-                while (isActive) {
-                    delay(1_000)
-                    runCatching { modern.sendSyncPacket(false) }
-                }
-            }
-            try {
-                encoder.frames().collect { frame ->
-                    if (!frame.isCodecConfig) modern.sendDataFrame(frame.data)
-                }
-            } finally {
-                syncJob.cancel()
+            encoder.frames().collect { frame ->
+                if (!frame.isCodecConfig) modern.sendDataFrame(frame.data)
             }
             return
         }
@@ -622,8 +697,9 @@ class MirrorService : Service() {
 
     /**
      * Wi-Fi power saving parks the radio between beacons when the screen is off,
-     * which shows up as multi-hundred-millisecond stalls in the video. The wake
-     * lock is what keeps the session smooth.
+     * which shows up as multi-hundred-millisecond stalls in the video. The CPU
+     * wake lock keeps us scheduled; the low-latency Wi-Fi lock keeps the radio
+     * out of power save, which the CPU lock alone does not.
      */
     private fun acquireWakeLock() {
         val power = getSystemService(PowerManager::class.java)
@@ -631,11 +707,23 @@ class MirrorService : Service() {
             setReferenceCounted(false)
             acquire(WAKE_LOCK_TIMEOUT_MS)
         }
+        wifiLock = runCatching {
+            getSystemService(WifiManager::class.java)
+                ?.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, WAKE_LOCK_TAG)
+                ?.apply {
+                    setReferenceCounted(false)
+                    // The public WifiLock API has no timed acquire; releaseWakeLock
+                    // bounds it to the session, like the CPU lock.
+                    acquire()
+                }
+        }.onFailure { Log.w(TAG, "Low-latency Wi-Fi lock unavailable", it) }.getOrNull()
     }
 
     private fun releaseWakeLock() {
         runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
         wakeLock = null
+        runCatching { wifiLock?.takeIf { it.isHeld }?.release() }
+        wifiLock = null
     }
 
     /**
@@ -758,7 +846,13 @@ class MirrorService : Service() {
         private const val PREF_MUTED_VOLUME = "muted_volume"
         private const val WAKE_LOCK_TIMEOUT_MS = 4 * 60 * 60 * 1000L
         private const val STATS_INTERVAL_MS = 1_000L
-        private const val FRAME_BUFFER = 8
+
+        /** The bitrate controller's window; two of them make one [STATS_INTERVAL_MS]. */
+        private const val ABR_WINDOW_MS = STATS_INTERVAL_MS / 2
+        private const val STATS_TICKS = STATS_INTERVAL_MS / ABR_WINDOW_MS
+
+        /** Frames the sender may fall behind: enough to absorb jitter, small enough to stay live. */
+        private const val FRAME_BUFFER = 3
         private const val DEFAULT_MAX_LONG_EDGE = 1920
         private const val DEFAULT_FRAME_RATE = 30
 
