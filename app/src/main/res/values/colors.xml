@@ -2,7 +2,7 @@
 <resources>
     <color name="ic_launcher_background">#9A4708</color>
     <!-- Same values as the Compose palette: the window behind the first frame
-         and the Android 12+ splash draw before KiteTheme exists. -->
-    <color name="kite_background">#FAF7F2</color>
-    <color name="kite_primary">#9A4708</color>
+         and the Android 12+ splash draw before VaneGliderTheme exists. -->
+    <color name="vane_background">#FAF7F2</color>
+    <color name="vane_primary">#9A4708</color>
 </resources>

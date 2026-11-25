@@ -3,7 +3,7 @@ package com.smurfiez.vaneglider.vm
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.smurfiez.vaneglider.KiteApplication
+import com.smurfiez.vaneglider.VaneGliderApplication
 import com.smurfiez.vaneglider.settings.FrameRate
 import com.smurfiez.vaneglider.settings.MirrorSettings
 import com.smurfiez.vaneglider.settings.Quality
@@ -14,7 +14,7 @@ import kotlinx.coroutines.launch
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository = (application as KiteApplication).settingsRepository
+    private val repository = (application as VaneGliderApplication).settingsRepository
 
     /**
      * Starts from the defaults rather than a nullable "not loaded yet": DataStore

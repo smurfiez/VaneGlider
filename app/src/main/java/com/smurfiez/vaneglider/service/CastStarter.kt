@@ -2,7 +2,7 @@ package com.smurfiez.vaneglider.service
 
 import android.content.Context
 import android.content.Intent
-import com.smurfiez.vaneglider.KiteApplication
+import com.smurfiez.vaneglider.VaneGliderApplication
 import com.smurfiez.vaneglider.airplay.discovery.AirPlayReceiver
 
 /**
@@ -22,7 +22,7 @@ suspend fun startCast(
     audioOnly: Boolean = false,
     videoOnly: Boolean = false,
 ) {
-    val settings = (context.applicationContext as KiteApplication).settingsRepository.current()
+    val settings = (context.applicationContext as VaneGliderApplication).settingsRepository.current()
     MirrorService.start(
         context = context,
         receiver = receiver,

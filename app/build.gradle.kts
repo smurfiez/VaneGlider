@@ -20,16 +20,16 @@ android {
     }
 
     // Release signing is environment-driven so the same code path serves local
-    // builds and CI: point KITE_KEYSTORE_PATH at the keystore and supply the
+    // builds and CI: point VANE_KEYSTORE_PATH at the keystore and supply the
     // passwords, or the release APK stays unsigned.
     signingConfigs {
         create("release") {
-            val keystorePath = System.getenv("KITE_KEYSTORE_PATH")
+            val keystorePath = System.getenv("VANE_KEYSTORE_PATH")
             if (!keystorePath.isNullOrBlank()) {
                 storeFile = file(keystorePath)
-                storePassword = System.getenv("KITE_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("KITE_KEY_ALIAS")
-                keyPassword = System.getenv("KITE_KEY_PASSWORD")
+                storePassword = System.getenv("VANE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("VANE_KEY_ALIAS")
+                keyPassword = System.getenv("VANE_KEY_PASSWORD")
             }
         }
     }
@@ -56,10 +56,10 @@ android {
             isMinifyEnabled = false
             isDebuggable = true
             matchingFallbacks += listOf("release")
-            versionNameSuffix = System.getenv("KITE_VERSION_SUFFIX")?.let { "-$it" }.orEmpty()
+            versionNameSuffix = System.getenv("VANE_VERSION_SUFFIX")?.let { "-$it" }.orEmpty()
         }
         debug {
-            versionNameSuffix = System.getenv("KITE_VERSION_SUFFIX")?.let { "-$it" }.orEmpty()
+            versionNameSuffix = System.getenv("VANE_VERSION_SUFFIX")?.let { "-$it" }.orEmpty()
         }
     }
 

@@ -34,7 +34,7 @@ import com.smurfiez.vaneglider.service.startCast
 import com.smurfiez.vaneglider.ui.DiscoveryScreen
 import com.smurfiez.vaneglider.ui.components.PasswordDialog
 import com.smurfiez.vaneglider.ui.components.PinDialog
-import com.smurfiez.vaneglider.ui.theme.KiteTheme
+import com.smurfiez.vaneglider.ui.theme.VaneGliderTheme
 import com.smurfiez.vaneglider.vm.MirrorViewModel
 import kotlinx.coroutines.launch
 
@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             @OptIn(ExperimentalMaterial3Api::class)
-            KiteTheme {
+            VaneGliderTheme {
                 val uiState by viewModel.uiState.collectAsStateWithLifecycle()
                 val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
                 val pinRequest by viewModel.pinRequest.collectAsStateWithLifecycle()

@@ -47,22 +47,22 @@ jobs:
 
       - name: Build signed canary APK
         env:
-          KITE_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
-          KITE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-          KITE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          KITE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-          KITE_VERSION_SUFFIX: canary.${{ github.run_number }}-${{ steps.vars.outputs.sha7 }}
+          VANE_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          VANE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          VANE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          VANE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          VANE_VERSION_SUFFIX: canary.${{ github.run_number }}-${{ steps.vars.outputs.sha7 }}
         run: bash gradlew :app:assembleCanary
 
       - name: Rename canary APK
         run: |
           cp app/build/outputs/apk/canary/app-canary.apk \
-            "Kite-canary.${{ github.run_number }}-${{ steps.vars.outputs.sha7 }}.apk"
-          ls -la Kite-canary.*.apk
+            "VaneGlider-canary.${{ github.run_number }}-${{ steps.vars.outputs.sha7 }}.apk"
+          ls -la VaneGlider-canary.*.apk
 
       - name: Upload canary APK
         uses: actions/upload-artifact@v4
         with:
-          name: kite-canary-run${{ github.run_number }}-${{ steps.vars.outputs.sha7 }}
-          path: Kite-canary.*.apk
+          name: vaneglider-canary-run${{ github.run_number }}-${{ steps.vars.outputs.sha7 }}
+          path: VaneGlider-canary.*.apk
           retention-days: 30

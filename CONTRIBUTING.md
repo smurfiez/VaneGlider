@@ -1,8 +1,8 @@
-# Contributing to Kite
+# Contributing to VaneGlider
 
-Thanks for your interest in Kite — an Android AirPlay **sender** that mirrors
-the phone's screen and plays its audio on AirPlay receivers (Macs, Apple TVs,
-UxPlay, and similar). This guide covers the repository layout, the casting
+Thanks for your interest in VaneGlider — an Android AirPlay **sender** that
+mirrors the phone's screen and plays its audio on AirPlay receivers (Macs, Apple
+TVs, UxPlay, and similar). This guide covers the repository layout, the casting
 architecture you will be working in, and the rules that keep the protocol code
 correct.
 
@@ -117,7 +117,7 @@ channel.
 
 ```mermaid
 sequenceDiagram
-    participant S as Kite
+    participant S as VaneGlider
     participant R as Receiver
     S->>R: TCP, then pair-setup (on-screen PIN, first time) or pair-verify (stored)
     Note over S,R: Control channel encrypted from here on
@@ -145,7 +145,7 @@ phases or introduce conditional skips beyond `videoEnabled`.
 
 ```mermaid
 sequenceDiagram
-    participant S as Kite
+    participant S as VaneGlider
     participant R as Receiver
     S->>R: OPTIONS
     S->>R: POST /fp-setup (FairPlay) — root ekey/eiv produced
@@ -401,6 +401,6 @@ Include:
 
 ## License
 
-Kite is released under the GNU LGPL-3.0 (see `LICENSE`). By contributing you
-agree that your changes are licensed under the same terms. Ported files keep
+VaneGlider is released under the GNU LGPL-3.0 (see `LICENSE`). By contributing
+you agree that your changes are licensed under the same terms. Ported files keep
 their original attribution — see the acknowledgements in the README.

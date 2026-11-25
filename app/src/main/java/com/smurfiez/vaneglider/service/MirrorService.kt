@@ -24,7 +24,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import com.smurfiez.vaneglider.KiteApplication
+import com.smurfiez.vaneglider.VaneGliderApplication
 import com.smurfiez.vaneglider.MainActivity
 import com.smurfiez.vaneglider.R
 import com.smurfiez.vaneglider.airplay.discovery.AirPlayReceiver
@@ -123,7 +123,7 @@ class MirrorService : Service() {
         // could put the level back.
         if (audioPrefs().getInt(PREF_MUTED_VOLUME, -1) > 0) restoreLocalAudio()
         // Keep the Quick Settings tile in step with the session state.
-        MirrorController.onPublish = { KiteTileService.requestRefresh(this) }
+        MirrorController.onPublish = { VaneGliderTileService.requestRefresh(this) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -267,7 +267,7 @@ class MirrorService : Service() {
 
     /** AirPlay 2 session: plist SETUPs, ChaCha20-Poly1305 audio, no FairPlay. */
     private suspend fun runAirPlay2AudioSession(receiver: AirPlayReceiver, mediaProjection: MediaProjection) {
-        val app = application as KiteApplication
+        val app = application as VaneGliderApplication
         val airPlay2 = AirPlay2Session(receiver, app.credentialStore, deviceName())
         airPlay2Session = airPlay2
 
@@ -315,7 +315,7 @@ class MirrorService : Service() {
 
     /** Classic RAOP (AirTunes v1) for AirPort Express, shairport-sync and friends. */
     private suspend fun runRaopAudioSession(receiver: AirPlayReceiver, mediaProjection: MediaProjection) {
-        val app = application as KiteApplication
+        val app = application as VaneGliderApplication
         val raop = RaopSession(receiver, app.credentialStore)
         raopSession = raop
 
@@ -399,7 +399,7 @@ class MirrorService : Service() {
                 "(display ${metrics.widthPixels}x${metrics.heightPixels}, maxLongEdge=$maxLongEdge)",
         )
 
-        val app = application as KiteApplication
+        val app = application as VaneGliderApplication
         // Route the whole process over the Wi-Fi network for the session's
         // lifetime: with a VPN up, RTSP/data/audio sockets would otherwise go
         // through the tunnel and the receiver would never see them.
@@ -439,8 +439,8 @@ class MirrorService : Service() {
         // Per-session send threads: created before the try so the finally can
         // always close them, and owned by this call rather than by a field a
         // concurrent cleanupSession could shut down under a newer session.
-        val videoSendDispatcher = newSendDispatcher("kite-video-send", Process.THREAD_PRIORITY_DISPLAY)
-        val audioSendDispatcher = newSendDispatcher("kite-audio-send", Process.THREAD_PRIORITY_URGENT_AUDIO)
+        val videoSendDispatcher = newSendDispatcher("vane-video-send", Process.THREAD_PRIORITY_DISPLAY)
+        val audioSendDispatcher = newSendDispatcher("vane-audio-send", Process.THREAD_PRIORITY_URGENT_AUDIO)
         try {
             val stream = mirrorSession.connect(
                 width = format.width,
@@ -792,7 +792,7 @@ class MirrorService : Service() {
         is SessionState.StreamingAudio -> rateText(state.kilobitsPerSecond)
 
         // The live detail lives in the notification, so the transition states
-        // get a line there too instead of only "Tap to return to Kite".
+        // get a line there too instead of only "Tap to return to VaneGlider".
         is SessionState.SettingUp -> getString(R.string.state_setting_up)
 
         is SessionState.Connecting -> getString(R.string.state_connecting)
@@ -822,9 +822,9 @@ class MirrorService : Service() {
         )
 
         val detail = metrics ?: getString(R.string.notification_text)
-        return NotificationCompat.Builder(this, KiteApplication.CHANNEL_ID_MIRRORING)
+        return NotificationCompat.Builder(this, VaneGliderApplication.CHANNEL_ID_MIRRORING)
             .setSmallIcon(R.drawable.ic_tile_cast)
-            .setColor(getColor(R.color.kite_primary))
+            .setColor(getColor(R.color.vane_primary))
             .setContentTitle(getString(R.string.notification_title, receiverName))
             .setContentText(detail)
             // The notification is where the live detail lives: expanded it
@@ -892,7 +892,7 @@ class MirrorService : Service() {
     companion object {
         private const val TAG = "MirrorService"
         private const val NOTIFICATION_ID = 1001
-        private const val WAKE_LOCK_TAG = "kite:mirroring"
+        private const val WAKE_LOCK_TAG = "vane:mirroring"
         private const val PREFS_AUDIO = "kite_audio"
         private const val PREF_MUTED_VOLUME = "muted_volume"
         private const val WAKE_LOCK_TIMEOUT_MS = 4 * 60 * 60 * 1000L

@@ -105,7 +105,7 @@ class ScreenEncoder(
     fun frames(): Flow<EncodedFrame> = callbackFlow {
         // Display priority so encode callbacks and the virtual display outrank
         // background work; everything still rides this one thread on purpose.
-        val thread = HandlerThread("kite-encoder", android.os.Process.THREAD_PRIORITY_DISPLAY)
+        val thread = HandlerThread("vane-encoder", android.os.Process.THREAD_PRIORITY_DISPLAY)
             .apply { start() }
         callbackThread = thread
         val encoderHandler = Handler(thread.looper)
@@ -397,7 +397,7 @@ class ScreenEncoder(
     private companion object {
         const val TAG = "ScreenEncoder"
         const val MIME_H264 = MediaFormat.MIMETYPE_VIDEO_AVC
-        const val VIRTUAL_DISPLAY_NAME = "Kite"
+        const val VIRTUAL_DISPLAY_NAME = "VaneGlider"
         const val BITRATE_MODE_CBR = MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR
 
         /** Resend the previous frame after this long with no screen change. */

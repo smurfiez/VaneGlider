@@ -37,7 +37,7 @@ import com.smurfiez.vaneglider.airplay.session.SessionState
 import com.smurfiez.vaneglider.service.MirrorController
 import com.smurfiez.vaneglider.service.startCast
 import com.smurfiez.vaneglider.ui.components.receiverItems
-import com.smurfiez.vaneglider.ui.theme.KiteTheme
+import com.smurfiez.vaneglider.ui.theme.VaneGliderTheme
 import kotlinx.coroutines.launch
 
 /**
@@ -79,7 +79,7 @@ class TilePickerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestRuntimePermissions()
-        setContent { KiteTheme { PickerDialog() } }
+        setContent { VaneGliderTheme { PickerDialog() } }
     }
 
     /**
@@ -113,7 +113,7 @@ class TilePickerActivity : ComponentActivity() {
 
     @Composable
     private fun PickerDialog() {
-        val app = application as KiteApplication
+        val app = application as VaneGliderApplication
         val receivers by app.discovery.receivers()
             .collectAsStateWithLifecycle(initialValue = emptyList())
         val session by MirrorController.state.collectAsStateWithLifecycle()

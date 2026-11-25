@@ -85,7 +85,7 @@ class AudioStream(
      * times entirely from this mapping.
      */
     private fun startSyncLoop() {
-        syncThread = kotlin.concurrent.thread(name = "kite-audio-sync", isDaemon = true) {
+        syncThread = kotlin.concurrent.thread(name = "vane-audio-sync", isDaemon = true) {
             var first = true
             while (!closed.get()) {
                 sendSyncPacket(first)

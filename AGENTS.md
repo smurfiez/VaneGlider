@@ -1,15 +1,20 @@
-# Agent Instructions for Kite
+# Agent Instructions for VaneGlider
 
 ## Project Context
 
-Kite (`com.smurfiez.vaneglider`) is an Android AirPlay **sender**: it mirrors the
-phone's screen — and plays its audio — on AirPlay receivers (Macs, Apple TVs,
-open receivers like UxPlay). It is not a receiver.
+The app is **VaneGlider** (`com.smurfiez.vaneglider`), a fork of itsHenry35/Kite.
+The Gradle root project, CI artifacts, theme, env vars, thread names and the
+receiver-visible identity (`VaneGlider1,1` model, `X-Apple-Client-Name`) all say
+**VaneGlider**; the only remaining `Kite` references are the upstream
+attribution and the two persisted storage keys deliberately left alone
+(`kite_audio` SharedPreferences, `kite_pairings` DataStore). It is an Android
+AirPlay **sender** — mirrors the phone's screen and plays its audio on receivers
+(Macs, Apple TVs, open receivers like UxPlay) — not a receiver.
 
 **Stack**:
 
-- Kotlin 2.3 / AGP 9.2 / Gradle 9.6, `compileSdk 37`, `targetSdk 36`,
-  `minSdk 29` (a functional floor — see Constraints)
+- Kotlin 2.3.21 / AGP 9.2.1 / Gradle 9.6.1, JDK 17 toolchain, `compileSdk 37`,
+  `targetSdk 36`, `minSdk 29` (a functional floor — see Constraints)
 - Jetpack Compose (Material 3), DataStore, JmDNS, Bouncy Castle
 - Modules: `airplay` (protocol, pure Kotlin/JVM-testable), `capture`
   (MediaProjection → H.264, AudioRecord → AAC/ALAC), `app` (UI + service)
@@ -43,11 +48,23 @@ Go function they mirror — keep it that way.
 ## Build & Test Commands
 
 ```sh
-./gradlew :app:assembleDebug     # build the APK
-./gradlew test detekt            # all JVM unit tests + static analysis
+./gradlew :app:assembleDebug      # debug APK (local debug keystore)
+./gradlew test detekt lintDebug :app:assembleDebug   # exactly what PR checks gate on
+./gradlew detekt --auto-correct   # formatter; commit its output or CI fails "uncommitted changes"
 ./gradlew :airplay:testDebugUnitTest --tests "com.smurfiez.vaneglider.airplay.crypto.*"
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+- Unit tests are plain JVM tests under each module's `src/test` — no device,
+  no emulator. The `airplay` and `capture` suites are the fast regression net.
+- `:app:assembleCanary` is the release-key-signed, debuggable, unminified
+  variant CI ships on every `main` push. It needs `VANE_KEYSTORE_PATH` plus
+  `VANE_KEYSTORE_PASSWORD` / `VANE_KEY_ALIAS` / `VANE_KEY_PASSWORD`; without
+  them the release config stays unsigned. `VANE_VERSION_SUFFIX` appends e.g.
+  `-canary.42-ab12cd3`.
+- PR titles must be Conventional Commits (`perf(stream): …`); CI rejects
+  anything else. Version bumps live in `app/build.gradle.kts` `appVersionName`
+  — a release tag must match it.
 
 ## Key Development Rules
 
@@ -56,33 +73,15 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 Routing lives in `MirrorService.handleStart` / `runAudioSession`; sessions live
 in the `airplay` module. Chain selection is explicit:
 
-```mermaid
-flowchart TD
-    A[Cast request] --> B{Receiver advertises<br/>audio only?}
-    B -- yes --> R[runAudioSession]
-    B -- no --> C{Sound only chosen?}
-    C -- yes --> D{pairingPath = HAP?}
-    D -- yes --> E[Modern mirror session,<br/>video skipped]
-    D -- no --> R
-    C -- no --> F[Mirror session<br/>screen with / without sound]
-    R --> G{bufferedAudio / PTP<br/>feature bits?}
-    G -- yes --> H[AirPlay2Session —<br/>plist SETUPs, ChaCha audio]
-    G -- no --> I[RaopSession —<br/>classic RAOP, L16 PCM]
-    F --> J{pairingPath HAP?}
-    J -- yes --> K[Modern chain<br/>authenticate → fp-setup → control/audio/video SETUP]
-    J -- no --> L[Legacy chain<br/>OPTIONS → fp-setup → session/video/audio SETUP → RECORD]
-```
-
 | Chain | Receiver | Session class | Audio pipeline |
 |-------|----------|---------------|----------------|
 | Modern mirror | macOS, Apple TV (HAP) | `MirrorSession` + `ModernSessionSetup` | `AlacAudioEncoder` → `ModernAudioStream` |
-| Legacy mirror | UxPlay, other open receivers | `MirrorSession` + `setupLegacySession` | `AlacAudioEncoder` → `AudioStream` |
+| Legacy mirror | UxPlay, other open receivers | `MirrorSession`, wired by `MirrorService.setupLegacySession` | `AlacAudioEncoder` → `AudioStream` |
 | Sound-only (HAP) | macOS | `MirrorSession` with `videoEnabled=false` | same as modern mirror |
 | AirPlay 2 audio-only | HomePod-class (bufferedAudio/PTP bits) | `AirPlay2Session` | `AlacAudioEncoder` |
 | RAOP audio-only | classic AirPlay 1 receivers | `RaopSession` | `AudioPcmSource` (L16) |
 
-Full phase-by-phase breakdown with sequence diagrams: CONTRIBUTING.md §Casting
-architecture.
+Phase-by-phase sequence diagrams: CONTRIBUTING.md §Casting architecture.
 
 ### 2. The modern chain order is protocol-significant
 
@@ -137,13 +136,42 @@ touching): PT 0x60, SSRC=0, 352-sample RTP step, each frame replayed as
 `[N-2, N-1, N]` byte-identically, TimeAnnounce (PT 0xd7) at the first frame and
 once per second, 0xd5/0xd6 retransmit responses.
 
-### 6. Media capture
+### 6. The video send path is single-writer, and ABR reads one signal
+
+This is the hot path; most past stutter bugs lived here.
+
+- **One writer.** `MirrorService` gives video and audio their own dispatchers
+  (`newSendDispatcher`: `vane-video-send` at `THREAD_PRIORITY_DISPLAY`,
+  `vane-audio-send` at `URGENT_AUDIO`). Keep send work on them — routing a
+  frame back onto `Dispatchers.Default/IO` reintroduces the interleaving and
+  scheduling jitter these threads exist to remove. Niceness is applied **inside
+  the thread body** (a raised nice leaks when the coroutine resumes elsewhere).
+- **Single write, serialised.** Every packet leaves as one
+  `[128-byte header | payload]` write under `MirrorStream.writeLock`, so a
+  heartbeat can never land between a header and its payload. Feedback
+  heartbeats use `tryLock()` and drop rather than stall on a dead receiver.
+  Frame ordering and cipher counters still belong to the one video loop.
+- **`AdaptiveBitRate` cuts on socket wait only** — `blockedNanos` from
+  `MirrorStream.drainPipelineStatistics()` (lock-free, 500 ms windows). Repack
+  / crypto / encode time must stay out of that signal: CPU load then looks like
+  congestion and false-cuts a healthy link. Put CPU timings in the `[TX]` log
+  instead. Any dropped frame cuts immediately; the ceiling comes from
+  `VideoFormat` so rotation re-derives it.
+- **Drops need an IDR.** A drop means a referenced P-frame is gone, so ask
+  `ScreenEncoder.requestKeyFrame()`; a watchdog pauses slices when no IDR
+  arrives within a second.
+
+### 7. Media capture
 
 - Video (`ScreenEncoder`): VBR with the explicit `"max-bitrate"` string key
-  (`KEY_MAX_BITRATE` does not exist in the SDK). `AVCLevel52` with a 4.1
-  fallback. Rotation rebuilds the encoder and re-primes the receiver via the
-  codec-config path; use `liveWidth`/`liveHeight` for that geometry, never the
-  startup `format`.
+  (`KEY_MAX_BITRATE` does not exist in the SDK). Configuration walks a rung
+  ladder — `High@5.2` → `High@4.1` → `Baseline@5.2` → `Baseline@4.1`, each with
+  and without the optional low-latency keys — so a vendor encoder that rejects
+  cabac/low-latency still starts. `KEY_LOW_LATENCY` is API 30+ only; keyframes
+  every 5 s, B-frames never.
+- Rotation rebuilds the encoder and re-primes the receiver via the codec-config
+  path; use `liveWidth`/`liveHeight` for that geometry, never the startup
+  `format`.
 - Audio: every path captures through `AudioPlaybackCaptureConfiguration` using
   the **same** MediaProjection as the video capture. The encoder is created
   only when RECORD_AUDIO is granted and a stream exists; otherwise the session
@@ -151,11 +179,11 @@ once per second, 0xd5/0xd6 retransmit responses.
 - Legacy receivers get **ALAC** (ct=2, 352-sample frames) — receivers validate
   AAC-ELD frame headers against Apple-encoder first bytes and drop frames from
   other encoders.
-- Bit-rate bounds span two modules: `MirrorSettings.BIT_RATE_MAX_MBPS` (slider)
-  and `VideoFormat.BIT_RATE_MAX_BPS` (encoder `require()`). Change one, change
-  the other — `MirrorSettingsTest` asserts their consistency.
+- Bit-rate bounds span two modules: `MirrorSettings.BIT_RATE_MAX_MBPS` (slider,
+  200) and `VideoFormat.BIT_RATE_MAX_BPS` (encoder `require()`, 200 Mbps).
+  Change one, change the other — `MirrorSettingsTest` asserts their consistency.
 
-### 7. Discovery
+### 8. Discovery
 
 - `_raop` resolve callbacks in JmDNS do not fire — audio-only capability comes
   from recording `_raop` instance names at `serviceAdded` and matching the
@@ -166,17 +194,19 @@ once per second, 0xd5/0xd6 retransmit responses.
 - BLE entries appear only after `GET /info` enrichment succeeds **and** the
   receiver advertises screen mirroring.
 
-### 8. Settings, strings, and style gates
+### 9. Settings, strings, and style gates
 
 - Settings are read via `settingsRepository.current()` at cast time; the model
   lives in `MirrorSettings`.
 - Every user-visible string ships in all 11 locales (`values/` plus `values-de`,
   `-es`, `-fr`, `-it`, `-ja`, `-ko`, `-pt-rBR`, `-ru`, `-zh-rCN`, `-zh-rTW`).
-  Terse copy, strict Material 3; the language follows the system — no in-app
-  picker.
+  `values-night` / `values-v31` are resource qualifiers, not locales. Terse
+  copy, strict Material 3; the language follows the system — no in-app picker.
 - detekt 2.0-alpha with `autoCorrect=true` gates the build. Baseline XML
   signatures are not guessable in this version — prefer
   `@Suppress("RuleName")` at the declaration with a one-line reason.
+- Kotlin's `and` / `or` / `shl` bind lower than `+` / `-` — parenthesise ported
+  bit math.
 
 ## Constraints
 
@@ -184,9 +214,10 @@ once per second, 0xd5/0xd6 retransmit responses.
   (`AudioPlaybackCapture`) requires Android 10; below 29 the app would be
   silently video-only. The library stack would allow 23 — do not lower it
   without the maintainer's explicit decision.
-- The debug APK is signed with the local debug keystore; release builds are
-  unsigned until a release keystore is configured. Never commit signing
-  material.
+- Signing is environment-driven: `VANE_KEYSTORE_PATH` +
+  `VANE_KEYSTORE_PASSWORD` / `VANE_KEY_ALIAS` / `VANE_KEY_PASSWORD`. Unset
+  means the release/canary APK stays unsigned — that is expected locally.
+  `signing.env` is gitignored; never commit keystores or passwords.
 - Edit files with the dedicated edit tool (precise patches). Do not rewrite
   files with python/sed/heredoc scripts, even for bulk mechanical changes.
 - Never decompile the built APK.
@@ -197,12 +228,18 @@ Logging is narrative by design. The tags that matter:
 
 ```sh
 adb logcat -s PairSetup:I PairVerify:I MirrorSession:I RtspClient:I \
-  ModernSessionSetup:I ModernAudioStream:I AirPlay2Session:I
+  ModernSessionSetup:I ModernAudioStream:I AirPlay2Session:I MirrorStream:I
 ```
 
 - `[PAIR]` / `[FAIRPLAY]` / `[HTTP]` / `[READ]` — handshake stages
 - `[SETUP]` — session setup decisions (timing protocol, ports)
-- `[AUDIO-TX]` — modern audio send rate; `[TX]` — video stats
+- `[AUDIO-TX]` — modern audio send rate
+- `[TX]` — the once-per-window sender report from `MirrorSession`:
+  `video=… frames=… audio=… total=… Mbps dropped=N | latency avg/max | repack+crypto | write | blocked%`.
+  `blocked%` is the socket wait the ABR cuts on. Event lines from
+  `MirrorService` — `dropped=… encoder queue full; requesting IDR` and
+  `no IDR in 1 s` — mean the pipeline is already behind; fix the drop/IDR path
+  before touching the bitrate.
 - Unprivileged `adb logcat` returns only this app's entries; `--pid=<pid>`
   narrows further.
 - Audio behaviour can only be verified against a real receiver (a Mac on the
@@ -211,34 +248,17 @@ adb logcat -s PairSetup:I PairVerify:I MirrorSession:I RtspClient:I \
 ## Validation Before Commit
 
 ```sh
-./gradlew test detekt :app:assembleDebug
+./gradlew test detekt lintDebug :app:assembleDebug
 ```
 
 Manual smoke for audio/video changes: install, cast to a real receiver, and
-confirm the expected `[SETUP]`/`[AUDIO-TX]` lines. Audio counts as tested only
-when someone heard sound.
-
-## Common File Locations
-
-| Area | Path |
-|------|------|
-| Audio crypto (draft-agl AEAD) | `airplay/…/crypto/OriginalChaCha20Poly1305.kt` |
-| Video channel crypto | `airplay/…/session/ChaChaFrameCipher.kt` |
-| FairPlay SAP v3 | `airplay/…/session/Fairplay*.kt`, `FpsapSession.kt` |
-| Pairing (HAP + legacy) | `airplay/…/pairing/` |
-| SETUP bodies | `airplay/…/session/SetupRequests.kt`, `ModernSetupRequests` |
-| Session orchestration | `airplay/…/session/MirrorSession.kt` |
-| Video stream + framing | `airplay/…/session/MirrorStream.kt`, `MirrorPacket.kt`, `NaluRepacker.kt` |
-| Legacy audio stream | `airplay/…/session/AudioStream.kt` |
-| Modern audio stream | `airplay/…/session/ModernAudioStream.kt` |
-| Screen capture / encode | `capture/…/ScreenEncoder.kt` |
-| ALAC encode | `capture/…/AlacEncoder.kt`, `AlacAudioEncoder.kt` |
-| Service | `app/…/service/MirrorService.kt` |
-| Settings model | `app/…/settings/MirrorSettings.kt`, `SettingsRepository.kt` |
-| Localization | `app/src/main/res/values*/strings.xml` |
+confirm the expected `[SETUP]`/`[AUDIO-TX]`/`[TX]` lines. Audio counts as tested
+only when someone heard sound. For wire-format changes, the pinning test is
+mandatory — the test map is CONTRIBUTING.md §Testing.
 
 ## Trust These Instructions
 
 Trust these instructions first. Search the codebase further only when they are
 incomplete for your task, when they contradict what you observe, or when you
-need implementation details they do not cover.
+need implementation details they do not cover. CONTRIBUTING.md carries the
+phase-by-phase protocol walkthrough, test map and file-location table.

@@ -65,7 +65,7 @@ class AlacAudioEncoder(private val projection: MediaProjection) : AudioFrameSour
         record = audioRecord
         audioRecord.startRecording()
 
-        val reader = thread(name = "kite-alac-reader") {
+        val reader = thread(name = "vane-alac-reader") {
             // A 352-sample frame is 8 ms; a normal-priority thread loses the
             // race against the rest of the app and the capture buffer overruns.
             runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO) }

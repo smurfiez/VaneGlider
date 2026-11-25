@@ -58,6 +58,27 @@ third-party receivers, phone-audio muting and a new visual identity.
   shows `864 × 1920 @ 30 fps · 1.4 Mbps` and the app screen is just the
   receiver list plus Stop.
 
+## Performance
+
+- **Low-latency encoding.** The encoder runs High profile (CABAC, no B-frames)
+  at realtime priority, with the low-latency codec hint on Android 11+, and
+  falls back rung by rung — High 5.2 → 4.1, then Baseline — when a vendor
+  encoder rejects a key. Keyframes are 5 s apart and requested on demand.
+- **One writer per stream.** Video and audio each own a high-priority send
+  thread, and every video packet leaves as a single `[128-byte header |
+  payload]` write, so a feedback heartbeat can never land inside a frame.
+- **Cheap crypto.** Video is sealed with the platform `ChaCha20-Poly1305`; the
+  audio sealer and the ALAC encoder reuse their buffers instead of allocating
+  on every 8 ms frame.
+- **Congestion control on the right signal.** The adaptive bit rate reacts only
+  to time spent blocked on the socket, so CPU peaks no longer read as
+  congestion. Any dropped frame cuts the bit rate and asks for a fresh
+  keyframe, and nothing decodes a P-frame whose references went missing.
+- **Wi-Fi kept awake and prioritised.** A low-latency Wi-Fi lock holds off
+  power-save for the length of a cast, video traffic is marked DSCP AF41 and
+  audio EF, and the send buffer is sized to about 125 ms of the stream so
+  backpressure arrives before the lag does.
+
 ## Requirements
 
 - Android 10 or later (minSdk 29)
@@ -79,8 +100,8 @@ a release tag must match it. The release build is signed from environment
 variables, so the key never enters the repo:
 
 ```sh
-. ./signing.env          # KITE_KEYSTORE_PATH / KITE_KEYSTORE_PASSWORD /
-                         # KITE_KEY_ALIAS / KITE_KEY_PASSWORD (gitignored)
+. ./signing.env          # VANE_KEYSTORE_PATH / VANE_KEYSTORE_PASSWORD /
+                         # VANE_KEY_ALIAS / VANE_KEY_PASSWORD (gitignored)
 ./gradlew :app:assembleRelease
 gh release create v2.0.0 app/build/outputs/apk/release/app-release.apk \
   --title "VaneGlider 2.0.0" --notes-file CHANGELOG.md

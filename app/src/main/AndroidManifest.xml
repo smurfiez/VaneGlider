@@ -52,13 +52,13 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
-        android:name=".KiteApplication"
+        android:name=".VaneGliderApplication"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Kite"
+        android:theme="@style/Theme.VaneGlider"
         android:localeConfig="@xml/locales_config"
         tools:targetApi="34">
 
@@ -66,20 +66,20 @@
           Dialog-style receiver picker opened from the Quick Settings tile:
           translucent so the app the user came from stays visible underneath.
           The empty taskAffinity keeps it in a task of its own — launched with
-          NEW_TASK it would otherwise join Kite's task and drag the app to the
-          foreground behind the translucent dialog.
+          NEW_TASK it would otherwise join VaneGlider's task and drag the app to
+          the foreground behind the translucent dialog.
         -->
         <activity
             android:name=".TilePickerActivity"
             android:excludeFromRecents="true"
             android:exported="false"
             android:taskAffinity=""
-            android:theme="@style/Theme.Kite.TilePicker" />
+            android:theme="@style/Theme.VaneGlider.TilePicker" />
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.Kite">
+            android:theme="@style/Theme.VaneGlider">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -90,13 +90,13 @@
             android:name=".SettingsActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity"
-            android:theme="@style/Theme.Kite" />
+            android:theme="@style/Theme.VaneGlider" />
 
         <activity
             android:name=".SavedReceiversActivity"
             android:exported="false"
             android:parentActivityName=".SettingsActivity"
-            android:theme="@style/Theme.Kite" />
+            android:theme="@style/Theme.VaneGlider" />
 
         <!--
           Capture only runs while this service is in the foreground. On API 34+ the
@@ -110,7 +110,7 @@
 
         <!-- Quick Settings tile: "Screen cast" in the notification shade. -->
         <service
-            android:name=".service.KiteTileService"
+            android:name=".service.VaneGliderTileService"
             android:exported="true"
             android:icon="@drawable/ic_tile_cast"
             android:label="@string/tile_label"

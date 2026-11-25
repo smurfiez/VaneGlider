@@ -238,7 +238,7 @@ class AirPlay2Session(
                 socket.tcpNoDelay = true
                 socket.connect(InetSocketAddress(receiver.address, port), EVENT_CONNECT_TIMEOUT_MS)
                 eventSocket = socket
-                eventDrain = thread(name = "kite-ap2-events") {
+                eventDrain = thread(name = "vane-ap2-events") {
                     drainEvents(socket, keys)
                 }
                 Log.i(TAG, "Event channel up on TCP $port")
@@ -511,7 +511,7 @@ class AirPlay2AudioStream(
     val bytesSent: Long get() = bytesCounter.get()
     private val bytesCounter = AtomicLong(0)
 
-    private val syncThread = thread(name = "kite-ap2-sync") { syncLoop() }
+    private val syncThread = thread(name = "vane-ap2-sync") { syncLoop() }
 
     /** Wire packets by sequence number, for answering retransmit requests. */
     private val resendCache = ArrayDeque<ByteArray>()

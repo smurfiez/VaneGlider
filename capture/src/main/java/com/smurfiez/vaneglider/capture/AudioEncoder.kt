@@ -48,7 +48,7 @@ class AudioEncoder(private val projection: MediaProjection, private val format: 
      */
     @SuppressLint("MissingPermission") // Playback capture is authorised by the projection.
     override fun frames(): Flow<EncodedAudioFrame> = callbackFlow {
-        val thread = HandlerThread("kite-audio-encoder").apply { start() }
+        val thread = HandlerThread("vane-audio-encoder").apply { start() }
         callbackThread = thread
         val handler = Handler(thread.looper)
 
@@ -115,7 +115,7 @@ class AudioEncoder(private val projection: MediaProjection, private val format: 
             audioRecord.startRecording()
 
             isCapturing = true
-            readerThread = thread(name = "kite-audio-reader") { pumpAudio(encoder, audioRecord) }
+            readerThread = thread(name = "vane-audio-reader") { pumpAudio(encoder, audioRecord) }
 
             Log.i(
                 TAG,
@@ -218,6 +218,7 @@ class AudioEncoder(private val projection: MediaProjection, private val format: 
         return us
     }
 
+    @SuppressLint("MissingPermission") // Playback capture is authorised by the projection.
     private fun createAudioRecord(): AudioRecord {
         val captureConfig = AudioPlaybackCaptureConfiguration.Builder(projection)
             .addMatchingUsage(AudioAttributes.USAGE_MEDIA)

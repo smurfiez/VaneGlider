@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Warm splash instead of the platform default grey with the old icon. -->
-    <style name="Theme.Kite" parent="Theme.Kite.Base">
-        <item name="android:windowSplashScreenBackground">@color/kite_background</item>
+    <style name="Theme.VaneGlider" parent="Theme.VaneGlider.Base">
+        <item name="android:windowSplashScreenBackground">@color/vane_background</item>
         <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
     </style>
 </resources>

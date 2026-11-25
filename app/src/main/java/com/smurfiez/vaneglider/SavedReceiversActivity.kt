@@ -12,7 +12,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import com.smurfiez.vaneglider.ui.SavedReceiver
 import com.smurfiez.vaneglider.ui.SavedReceiversScreen
-import com.smurfiez.vaneglider.ui.theme.KiteTheme
+import com.smurfiez.vaneglider.ui.theme.VaneGliderTheme
 import kotlinx.coroutines.launch
 
 /**
@@ -27,7 +27,7 @@ class SavedReceiversActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            KiteTheme {
+            VaneGliderTheme {
                 var receivers by remember { mutableStateOf<List<SavedReceiver>>(emptyList()) }
                 val scope = rememberCoroutineScope()
 
@@ -37,7 +37,7 @@ class SavedReceiversActivity : ComponentActivity() {
                     receivers = receivers,
                     onForget = { row ->
                         scope.launch {
-                            (application as KiteApplication).credentialStore
+                            (application as VaneGliderApplication).credentialStore
                                 .forgetReceiver(row.stableId)
                             receivers = loadReceivers()
                         }
@@ -49,7 +49,7 @@ class SavedReceiversActivity : ComponentActivity() {
     }
 
     private suspend fun loadReceivers(): List<SavedReceiver> {
-        val store = (application as KiteApplication).credentialStore
+        val store = (application as VaneGliderApplication).credentialStore
         return store.pairedReceiverIds()
             .map { SavedReceiver(stableId = it, name = store.receiverName(it)) }
             .sortedBy { (it.name ?: it.stableId).lowercase() }

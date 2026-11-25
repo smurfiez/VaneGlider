@@ -21,7 +21,7 @@ import androidx.lifecycle.lifecycleScope
 import com.smurfiez.vaneglider.logs.Logs
 import com.smurfiez.vaneglider.ui.GITHUB_URL
 import com.smurfiez.vaneglider.ui.SettingsScreen
-import com.smurfiez.vaneglider.ui.theme.KiteTheme
+import com.smurfiez.vaneglider.ui.theme.VaneGliderTheme
 import com.smurfiez.vaneglider.vm.SettingsViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -42,7 +42,7 @@ class SettingsActivity : AppCompatActivity() {
         enableEdgeToEdge()
 
         setContent {
-            KiteTheme {
+            VaneGliderTheme {
                 val settings by viewModel.settings.collectAsStateWithLifecycle()
                 var isBatteryExempt by remember { mutableStateOf(isIgnoringBatteryOptimizations()) }
 

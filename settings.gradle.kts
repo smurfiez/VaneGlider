@@ -17,7 +17,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Kite"
+rootProject.name = "VaneGlider"
 
 include(":app")
 include(":airplay")

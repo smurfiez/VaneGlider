@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.sp
  * than a bundled font, which keeps the APK small and every locale rendering
  * with its own correct glyphs.
  */
-val KiteTypography = Typography(
+val VaneGliderTypography = Typography(
     displaySmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,

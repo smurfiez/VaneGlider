@@ -71,12 +71,12 @@ private val DarkColors = darkColorScheme(
 )
 
 @Composable
-fun KiteTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+fun VaneGliderTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     val colorScheme = if (darkTheme) DarkColors else LightColors
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = KiteTypography,
+        typography = VaneGliderTypography,
         content = content,
     )
 }

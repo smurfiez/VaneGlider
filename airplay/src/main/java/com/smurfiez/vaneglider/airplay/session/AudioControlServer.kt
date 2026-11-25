@@ -50,7 +50,7 @@ class AudioControlServer : Closeable {
         socket = channel
         isRunning = true
 
-        listener = thread(name = "kite-audio-control") {
+        listener = thread(name = "vane-audio-control") {
             val buffer = ByteArray(PACKET_BUFFER_BYTES)
             while (isRunning) {
                 val packet = DatagramPacket(buffer, buffer.size)

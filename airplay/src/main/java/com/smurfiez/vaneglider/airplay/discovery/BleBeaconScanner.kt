@@ -1,6 +1,7 @@
 package com.smurfiez.vaneglider.airplay.discovery
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
@@ -70,6 +71,7 @@ object BleBeaconScanner {
      * entries in place once their /info enrichment completes. Completes
      * immediately when Bluetooth is off, absent, or not permitted.
      */
+    @SuppressLint("MissingPermission") // Guarded by hasPermission(); the calls are runCatching anyway.
     fun scan(context: Context): Flow<AirPlayReceiver> = callbackFlow {
         val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
         val scanner = adapter?.bluetoothLeScanner

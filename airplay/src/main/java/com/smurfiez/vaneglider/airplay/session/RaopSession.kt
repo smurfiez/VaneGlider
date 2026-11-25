@@ -44,7 +44,7 @@ class PasswordRequiredException(val receiver: AirPlayReceiver) : Exception("Rece
  */
 class RaopSession(private val receiver: AirPlayReceiver, private val credentialStore: CredentialStore) : Closeable {
 
-    private val client = RtspClient(receiver.address, receiver.port, clientName = "Kite")
+    private val client = RtspClient(receiver.address, receiver.port, clientName = "VaneGlider")
     private val timingServer = TimingServer()
     private var requestCount = 0
     private var sessionUri: String = ""
@@ -354,11 +354,11 @@ class RaopAudioStream(
     val bytesSent: Long get() = bytesCounter.get()
     private val bytesCounter = AtomicLong(0)
 
-    private val controlThread = Thread({ controlLoop(controlSocket) }, "kite-raop-control").apply {
+    private val controlThread = Thread({ controlLoop(controlSocket) }, "vane-raop-control").apply {
         isDaemon = true
         start()
     }
-    private val syncThread = Thread({ syncLoop() }, "kite-raop-sync").apply {
+    private val syncThread = Thread({ syncLoop() }, "vane-raop-sync").apply {
         isDaemon = true
         start()
     }

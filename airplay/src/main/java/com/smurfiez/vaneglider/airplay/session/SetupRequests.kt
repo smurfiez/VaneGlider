@@ -211,7 +211,7 @@ object SetupRequests {
      */
     private const val AUDIO_FORMAT_ALAC_44100_2 = 1L shl 18
 
-    private const val CLIENT_MODEL = "Kite1,1"
+    private const val CLIENT_MODEL = "VaneGlider1,1"
     private const val SOURCE_VERSION = "770.8.1"
 
     /**

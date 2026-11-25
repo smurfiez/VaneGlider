@@ -1,5 +1,6 @@
 package com.smurfiez.vaneglider.airplay.discovery
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
@@ -38,6 +39,7 @@ import javax.jmdns.ServiceListener
  * A multicast lock is held for the lifetime of the flow. Without it the Wi-Fi
  * driver filters the multicast group as soon as the screen turns off.
  */
+@SuppressLint("MissingPermission") // ACCESS_NETWORK_STATE is a normal permission, granted at install.
 class ReceiverDiscovery(private val context: Context) {
 
     /** Bumped by [refresh]; restarting the flows re-browses from scratch. */
@@ -338,7 +340,7 @@ class ReceiverDiscovery(private val context: Context) {
     private companion object {
         const val TAG = "ReceiverDiscovery"
         val SERVICE_TYPES = arrayOf("_airplay._tcp.local.", "_raop._tcp.local.")
-        const val MULTICAST_LOCK_TAG = "kite-mdns"
+        const val MULTICAST_LOCK_TAG = "vane-mdns"
         const val RESOLVE_TIMEOUT_MS = 3_000L
     }
 }
@@ -416,6 +418,7 @@ object WifiNetworkResolver {
     data class WifiNetwork(val network: android.net.Network?, val localAddress: InetAddress?)
 
     /** Finds the non-VPN Wi-Fi/Ethernet network and its IPv4 address; null when absent. */
+    @SuppressLint("MissingPermission") // ACCESS_NETWORK_STATE is a normal permission, granted at install.
     fun find(context: Context): WifiNetwork {
         val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
             ?: return WifiNetwork(null, null)

@@ -20,7 +20,7 @@ import com.smurfiez.vaneglider.airplay.session.activeReceiver
  * While a session is up the tile lights up and tapping it stops the cast,
  * which is quicker than reaching the notification from inside another app.
  */
-class KiteTileService : TileService() {
+class VaneGliderTileService : TileService() {
 
     override fun onStartListening() {
         applyState()
@@ -72,11 +72,11 @@ class KiteTileService : TileService() {
     }
 
     companion object {
-        private const val TAG = "KiteTileService"
+        private const val TAG = "VaneGliderTileService"
 
         /** Asks the system to rebind the tile so it re-reads [MirrorController.state]. */
         fun requestRefresh(context: Context) {
-            TileService.requestListeningState(context, ComponentName(context, KiteTileService::class.java))
+            TileService.requestListeningState(context, ComponentName(context, VaneGliderTileService::class.java))
         }
     }
 }

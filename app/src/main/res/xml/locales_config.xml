@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Declaring the supported locales is what puts Kite in Android Settings ->
+  Declaring the supported locales is what puts VaneGlider in Android Settings ->
   System -> Languages -> App languages on API 33+. The first entry is the
   default that ships in res/values.
 -->

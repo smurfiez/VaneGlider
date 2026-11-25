@@ -76,7 +76,7 @@ jobs:
       - name: Build debug APK
         if: success() || failure()
         env:
-          KITE_VERSION_SUFFIX: pr.${{ github.event.pull_request.number }}-${{ steps.vars.outputs.sha7 }}
+          VANE_VERSION_SUFFIX: pr.${{ github.event.pull_request.number }}-${{ steps.vars.outputs.sha7 }}
         run: |
           set -o pipefail
           echo "Building debug APK (debug signing)..."
@@ -92,15 +92,15 @@ jobs:
         if: success()
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk \
-            "Kite-debug.pr${{ github.event.pull_request.number }}.${{ steps.vars.outputs.sha7 }}.apk"
-          ls -la Kite-debug.*.apk
+            "VaneGlider-debug.pr${{ github.event.pull_request.number }}.${{ steps.vars.outputs.sha7 }}.apk"
+          ls -la VaneGlider-debug.*.apk
 
       - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: kite-debug-pr${{ github.event.pull_request.number }}-run${{ github.run_number }}-${{ steps.vars.outputs.sha7 }}
-          path: Kite-debug.*.apk
+          name: vaneglider-debug-pr${{ github.event.pull_request.number }}-run${{ github.run_number }}-${{ steps.vars.outputs.sha7 }}
+          path: VaneGlider-debug.*.apk
           retention-days: 7
 
       - name: Check PR title format

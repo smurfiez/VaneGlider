@@ -22,10 +22,10 @@ object Logs {
     fun collect(context: Context): File {
         val dir = File(context.cacheDir, "logs").apply { mkdirs() }
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-        val file = File(dir, "kite-logs-$stamp.txt")
+        val file = File(dir, "vane-logs-$stamp.txt")
 
         file.bufferedWriter().use { out ->
-            out.appendLine("Kite ${appVersion(context)}")
+            out.appendLine("VaneGlider ${appVersion(context)}")
             out.appendLine(
                 "Device: ${Build.MANUFACTURER} ${Build.MODEL}, " +
                     "Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})",

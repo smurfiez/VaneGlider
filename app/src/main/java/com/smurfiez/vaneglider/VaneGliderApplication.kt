@@ -12,7 +12,7 @@ import com.smurfiez.vaneglider.settings.SettingsRepository
 /**
  * Manual dependency wiring. Three singletons is not worth a DI framework here.
  */
-class KiteApplication : Application() {
+class VaneGliderApplication : Application() {
 
     val credentialStore: CredentialStore by lazy { DataStoreCredentialStore(this) }
     val discovery: ReceiverDiscovery by lazy { ReceiverDiscovery(this) }

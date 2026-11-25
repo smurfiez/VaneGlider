@@ -99,7 +99,7 @@ class ModernAudioStream(
             }
         }.apply {
             isDaemon = true
-            name = "kite-audio-ctrl"
+            name = "vane-audio-ctrl"
         }.start()
 
         // Refresh the RTP↔timeline mapping once per second (doubletake's
@@ -117,7 +117,7 @@ class ModernAudioStream(
             }
         }.apply {
             isDaemon = true
-            name = "kite-audio-sync"
+            name = "vane-audio-sync"
         }.start()
     }
 

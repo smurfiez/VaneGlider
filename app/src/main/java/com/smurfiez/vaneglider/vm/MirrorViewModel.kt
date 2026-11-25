@@ -3,8 +3,8 @@ package com.smurfiez.vaneglider.vm
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.smurfiez.vaneglider.KiteApplication
 import com.smurfiez.vaneglider.R
+import com.smurfiez.vaneglider.VaneGliderApplication
 import com.smurfiez.vaneglider.airplay.discovery.AirPlayReceiver
 import com.smurfiez.vaneglider.airplay.session.SessionState
 import com.smurfiez.vaneglider.service.MirrorController
@@ -28,7 +28,7 @@ data class DiscoveryUiState(
 
 class MirrorViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val app = application as KiteApplication
+    private val app = application as VaneGliderApplication
 
     private val pairedIdsState = MutableStateFlow<Set<String>>(emptySet())
     private val discoveryErrorState = MutableStateFlow<String?>(null)

@@ -42,7 +42,7 @@ class TimingServer : AutoCloseable {
         runCatching { s.trafficClass = TRAFFIC_CLASS_EF }
         socket = s
         running.set(true)
-        thread = Thread({ receiveLoop(s) }, "kite-timing").apply {
+        thread = Thread({ receiveLoop(s) }, "vane-timing").apply {
             isDaemon = true
             start()
         }

@@ -47,6 +47,22 @@ AirPlay 接收端。
 - **状态展示归位。** 状态面板只在连接、配对和失败时出现；投屏过程中常驻通知
   显示 `864 × 1920 @ 30 fps · 1.4 Mbps`，应用界面只留接收端列表和停止按钮。
 
+## 性能
+
+- **低延迟编码。** 编码器以实时优先级运行 High profile（CABAC、无 B 帧），
+  在 Android 11 及以上启用低延迟提示；厂商编码器拒绝某个参数时逐级回退
+  （High 5.2 → 4.1，再到 Baseline）。关键帧间隔 5 秒，并按需请求。
+- **单一路写者。** 视频与音频各自跑在高优先级发送线程上，每个视频包以一次
+  `[128 字节头 | 负载]` 写入发出，反馈心跳不会插进一帧中间。
+- **加密开销更低。** 视频使用平台自带的 `ChaCha20-Poly1305`；音频加密与 ALAC
+  编码复用缓冲区，不再每 8 ms 分配一次。
+- **只看对的信号的拥塞控制。** 自适应码率只对写入 socket 的阻塞时间做出反应，
+  CPU 峰值不会再被误判成网络拥塞。任何丢帧都会立即降码率并请求新的关键帧，
+  参考帧缺失的 P 帧不会被解码。
+- **Wi-Fi 不休眠、有优先级。** 投屏期间持有低延迟 Wi-Fi 锁避免省电降频，视频
+  流量标记 DSCP AF41、音频标记 EF，发送缓冲区按约 125 ms 的码流大小设置，
+  让背压先于延迟出现。
+
 ## 要求
 
 - Android 10 及以上（minSdk 29）
@@ -67,8 +83,8 @@ Android SDK 通过 `ANDROID_HOME` 或 `local.properties` 指定。
 需要与之对应。Release 包通过环境变量签名，密钥不会进入仓库：
 
 ```sh
-. ./signing.env          # KITE_KEYSTORE_PATH / KITE_KEYSTORE_PASSWORD /
-                         # KITE_KEY_ALIAS / KITE_KEY_PASSWORD（已在 .gitignore）
+. ./signing.env          # VANE_KEYSTORE_PATH / VANE_KEYSTORE_PASSWORD /
+                         # VANE_KEY_ALIAS / VANE_KEY_PASSWORD（已在 .gitignore）
 ./gradlew :app:assembleRelease
 gh release create v2.0.0 app/build/outputs/apk/release/app-release.apk \
   --title "VaneGlider 2.0.0" --notes-file CHANGELOG.md
