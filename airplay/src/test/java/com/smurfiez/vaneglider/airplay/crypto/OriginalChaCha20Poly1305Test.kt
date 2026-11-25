@@ -1,5 +1,6 @@
 package com.smurfiez.vaneglider.airplay.crypto
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -88,5 +89,46 @@ class OriginalChaCha20Poly1305Test {
     fun shortPayloadSharesTheKeystreamPrefix() {
         val sealed = OriginalChaCha20Poly1305(key, le64(0)).seal(aad, pattern(5))
         assertEquals("5a6cf53302fee76a7175a804b572c7b9d7301f82d3", sealed.hex())
+    }
+
+    @Test
+    fun reusableSealerMatchesTheOneShotSeal() {
+        // The hot path reuses one Sealer, so it must agree byte-for-byte with the
+        // one-shot API on every length that crosses a 64-byte ChaCha block and a
+        // 16-byte MAC padding boundary, at several nonce counters.
+        val sealer = OriginalChaCha20Poly1305.Sealer(key)
+        for (length in intArrayOf(0, 1, 5, 63, 64, 65, 100, 352)) {
+            val plaintext = pattern(length)
+            for (counter in longArrayOf(0, 1, 2, 3, 0x0BAD)) {
+                val nonce = le64(counter)
+                val expected = OriginalChaCha20Poly1305(key, nonce).seal(aad, plaintext)
+                val out = ByteArray(expected.size)
+                val written = sealer.sealInto(nonce, aad, 0, aad.size, plaintext, out, 0)
+                assertEquals("length=$length nonce=$counter", expected.size, written)
+                assertArrayEquals("length=$length nonce=$counter", expected, out)
+            }
+        }
+    }
+
+    @Test
+    fun sealerSealsInPlaceWithTheRtpHeaderAsAad() {
+        // ModernAudioStream seals into the packet it has already written the RTP
+        // header into and uses header[4:12] as the AAD, so the sealer has to read
+        // a slice of its own output buffer before overwriting the rest of it.
+        val sealer = OriginalChaCha20Poly1305.Sealer(key)
+        val frame = pattern(352)
+        for (counter in 0L..3L) {
+            val nonce = le64(counter)
+            val packet = ByteArray(12 + frame.size + 16 + 8)
+            packet[0] = 0x80.toByte()
+            packet[1] = 0x60
+            for (i in 0 until 8) packet[4 + i] = ((i * 31 + 7) and 0xFF).toByte()
+            val headerAad = packet.copyOfRange(4, 12)
+
+            val written = sealer.sealInto(nonce, packet, 4, 8, frame, packet, 12)
+            val expected = OriginalChaCha20Poly1305(key, nonce).seal(headerAad, frame)
+            assertEquals(expected.size, written)
+            assertArrayEquals(expected, packet.copyOfRange(12, 12 + written))
+        }
     }
 }

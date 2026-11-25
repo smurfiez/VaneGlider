@@ -60,6 +60,13 @@ class ModernAudioStream(
     private val framesSent = AtomicLong(0)
     private val bytesSent = AtomicLong(0)
 
+    // These three buffers belong to the audio sender thread alone: they are
+    // only touched from [sendDataFrame]. The control listener thread owns its
+    // own DatagramPackets.
+    private val sealer = OriginalChaCha20Poly1305.Sealer(streamKey)
+    private val nonce = ByteArray(NONCE_BYTES)
+    private val dataPacket = DatagramPacket(ByteArray(0), 0, remoteAddress, remoteDataPort)
+
     /** Bytes/frames actually sent, for the session statistics tick. */
     val statistics: Statistics
         get() = Statistics(bytesSent.get(), framesSent.get())
@@ -70,6 +77,12 @@ class ModernAudioStream(
     private class HistoryEntry(val datagram: ByteArray, val frame: ByteArray, val rtpTime: Int)
 
     fun start() {
+        // DSCP EF (0xB8): Android maps it to WMM voice on Wi-Fi, so the audio
+        // datagrams are not queued behind bulk traffic. Best-effort — the
+        // platform may refuse. Control retransmits leave by the same socket.
+        runCatching { dataSocket.trafficClass = TRAFFIC_CLASS_EF }
+        runCatching { controlSocket.trafficClass = TRAFFIC_CLASS_EF }
+
         // No TimeAnnounce here: announcing at SETUP time puts the playhead
         // hundreds of milliseconds ahead of the first real frame (encoder and
         // AudioRecord startup), and the receiver then reads the entire stream
@@ -154,15 +167,23 @@ class ModernAudioStream(
         // seal must use the same counter — sealing under a fixed nonce leaves
         // every packet after the first failing Poly1305 at the receiver.
         // Kept in the history ring for 0xd5/0xd6 retransmit requests.
-        val nonce = ByteArray(8)
         val counter = nonceCounter.getAndIncrement()
         for (i in 0 until 8) nonce[i] = ((counter ushr (8 * i)) and 0xFF).toByte()
-        val header = rtpHeader(rtp, seqNum, PRIMARY_PAYLOAD_TYPE.toByte())
-        val sealed = OriginalChaCha20Poly1305(streamKey, nonce).seal(
-            aad = header.copyOfRange(4, 12),
+        // One buffer per frame: [RTP header | ciphertext + tag | nonce]. The
+        // seal writes in place behind the header and hashes header[4:12] as the
+        // AAD, so no header or aad copy is needed.
+        val primary = ByteArray(RTP_HEADER_BYTES + frame.size + TAG_BYTES + NONCE_BYTES)
+        writeRtpHeader(primary, rtp, seqNum)
+        val sealedBytes = sealer.sealInto(
+            nonce = nonce,
+            aad = primary,
+            aadOffset = 4,
+            aadLength = 8,
             plaintext = frame,
+            out = primary,
+            outOffset = RTP_HEADER_BYTES,
         )
-        val primary = header + sealed + nonce
+        nonce.copyInto(primary, RTP_HEADER_BYTES + sealedBytes)
 
         // First real frame: anchor the RTP↔timeline mapping right now, so the
         // announced playhead is ~one latency window ahead of actual arrival
@@ -178,7 +199,7 @@ class ModernAudioStream(
             while (redundancyWindow.size > REDUNDANCY_DEPTH) {
                 redundancyWindow.removeFirst()
             }
-            redundancyWindow.forEach { send(it, remoteDataPort) }
+            redundancyWindow.forEach { send(it) }
         }
         if (seqNum % 100 == 1) {
             Log.d(TAG, "audio frame seq=$seqNum bytes=${frame.size} rtp=$rtp")
@@ -248,25 +269,25 @@ class ModernAudioStream(
         }
     }
 
-    private fun rtpHeader(rtp: Int, seqNum: Int, payloadType: Byte): ByteArray {
-        val header = ByteArray(12)
-        header[0] = 0x80.toByte()
-        header[1] = payloadType
-        header[2] = ((seqNum shr 8) and 0xFF).toByte()
-        header[3] = (seqNum and 0xFF).toByte()
-        header[4] = (rtp shr 24).toByte()
-        header[5] = (rtp shr 16).toByte()
-        header[6] = (rtp shr 8).toByte()
-        header[7] = rtp.toByte()
-        header[8] = (ssrc shr 24).toByte()
-        header[9] = (ssrc shr 16).toByte()
-        header[10] = (ssrc shr 8).toByte()
-        header[11] = ssrc.toByte()
-        return header
+    private fun writeRtpHeader(target: ByteArray, rtp: Int, seqNum: Int) {
+        target[0] = 0x80.toByte()
+        target[1] = PRIMARY_PAYLOAD_TYPE.toByte()
+        target[2] = ((seqNum shr 8) and 0xFF).toByte()
+        target[3] = (seqNum and 0xFF).toByte()
+        target[4] = (rtp shr 24).toByte()
+        target[5] = (rtp shr 16).toByte()
+        target[6] = (rtp shr 8).toByte()
+        target[7] = rtp.toByte()
+        target[8] = (ssrc shr 24).toByte()
+        target[9] = (ssrc shr 16).toByte()
+        target[10] = (ssrc shr 8).toByte()
+        target[11] = ssrc.toByte()
     }
 
-    private fun send(packet: ByteArray, remotePort: Int) {
-        dataSocket.send(DatagramPacket(packet, packet.size, remoteAddress, remotePort))
+    /** Reuses [dataPacket] so a frame's three replays allocate nothing. */
+    private fun send(packet: ByteArray) {
+        dataPacket.setData(packet, 0, packet.size)
+        dataSocket.send(dataPacket)
     }
 
     /** Closes both UDP sockets; the control listener thread exits on receive error. */
@@ -289,5 +310,12 @@ class ModernAudioStream(
         /** ALAC frame length; the RTP timestamp step. */
         const val SAMPLES_PER_FRAME = 352L
         private const val PRIMARY_PAYLOAD_TYPE = 0x60
+
+        private const val RTP_HEADER_BYTES = 12
+        private const val TAG_BYTES = 16
+        private const val NONCE_BYTES = 8
+
+        /** DSCP expedited forwarding, the class AirPlay audio is expected to use. */
+        private const val TRAFFIC_CLASS_EF = 0xB8
     }
 }

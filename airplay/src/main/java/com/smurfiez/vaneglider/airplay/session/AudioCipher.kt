@@ -33,11 +33,15 @@ class AudioCipher(key: ByteArray, iv: ByteArray) {
         Log.i(TAG, "AudioCipher ready (key ${keyCopy.size}B, iv ${ivCopy.size}B)")
     }
 
+    // One Cipher, re-initialised per packet. The per-packet init is what pins
+    // the IV and keeps packets independent; the instance is thread-confined to
+    // the single audio sender (AudioStream is documented as not thread-safe).
+    private val keySpec = SecretKeySpec(keyCopy, "AES")
+    private val ivSpec = IvParameterSpec(ivCopy)
+    private val cipher = Cipher.getInstance("AES/CBC/NoPadding")
+
     /**
      * Returns the payload with its block-aligned prefix encrypted.
-     *
-     * A fresh Cipher per packet is what makes the per-packet IV reset explicit;
-     * at one packet per ELD frame the allocation is not worth optimising away.
      */
     fun encrypt(payload: ByteArray): ByteArray {
         val alignedLength = payload.size / AES_BLOCK_BYTES * AES_BLOCK_BYTES
@@ -48,9 +52,7 @@ class AudioCipher(key: ByteArray, iv: ByteArray) {
             Log.i(TAG, "first encrypt: key=${keyCopy.size}B iv=${ivCopy.size}B payload=${payload.size}B")
         }
 
-        val cipher = Cipher.getInstance("AES/CBC/NoPadding").apply {
-            init(Cipher.ENCRYPT_MODE, SecretKeySpec(keyCopy, "AES"), IvParameterSpec(ivCopy))
-        }
+        cipher.init(Cipher.ENCRYPT_MODE, keySpec, ivSpec)
 
         val output = payload.copyOf()
         cipher.doFinal(payload, 0, alignedLength, output, 0)

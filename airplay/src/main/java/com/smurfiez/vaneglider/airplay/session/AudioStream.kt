@@ -62,13 +62,17 @@ class AudioStream(
 
     data class Statistics(val bytes: Long, val packets: Long)
 
-    private class TimedFrame(val sequenceNumber: Int, val rtpTimestamp: Long, val encryptedPayload: ByteArray)
+    private class TimedFrame(val sequenceNumber: Int, val packet: ByteArray)
 
     fun connect() {
         check(socket == null) { "Already connected" }
         // Unconnected: the receiver may answer from a different source port, and
         // a connected socket would make those replies unreadable.
-        socket = DatagramSocket()
+        socket = DatagramSocket().also {
+            // DSCP EF: Android maps it to WMM voice, so audio is not queued
+            // behind bulk traffic. Best-effort — the platform may refuse.
+            runCatching { it.trafficClass = TRAFFIC_CLASS_EF }
+        }
         Log.i(TAG, "Audio channel ready, sending to ${address.hostAddress}:$port")
         if (remoteControlPort > 0) startSyncLoop()
     }
@@ -143,10 +147,12 @@ class AudioStream(
     fun sendAudioFrame(frame: ByteArray) = sendFrame(frame, encrypt = true)
 
     private fun sendFrame(payload: ByteArray, encrypt: Boolean) {
+        val wirePayload = if (encrypt) cipher.encrypt(payload) else payload
+        // Built once: every replay of this frame and every resend request sends
+        // these exact bytes.
         val outgoing = TimedFrame(
             sequenceNumber = sequenceNumber,
-            rtpTimestamp = rtpTimestamp,
-            encryptedPayload = if (encrypt) cipher.encrypt(payload) else payload,
+            packet = AudioPacket.packet(sequenceNumber, rtpTimestamp, wirePayload),
         )
 
         sequenceNumber = (sequenceNumber + 1) and 0xFFFF
@@ -161,16 +167,11 @@ class AudioStream(
 
     private fun transmit(frame: TimedFrame) {
         val channel = socket ?: throw IllegalStateException("Audio channel is not open")
-        val bytes = AudioPacket.packet(
-            sequenceNumber = frame.sequenceNumber,
-            rtpTimestamp = frame.rtpTimestamp,
-            payload = frame.encryptedPayload,
-        )
-        cacheForResend(frame.sequenceNumber, bytes)
+        cacheForResend(frame.sequenceNumber, frame.packet)
         runCatching {
-            channel.send(DatagramPacket(bytes, bytes.size, address, port))
+            channel.send(DatagramPacket(frame.packet, frame.packet.size, address, port))
         }.onSuccess {
-            bytesSent.addAndGet(bytes.size.toLong())
+            bytesSent.addAndGet(frame.packet.size.toLong())
             packetsSent.incrementAndGet()
         }.onFailure { error ->
             // A dropped datagram is not fatal; the next frame carries the repeat.
@@ -239,5 +240,8 @@ class AudioStream(
 
         /** UxPlay's expected next-packet lead for ALAC (441 * 175). */
         private const val SYNC_LEAD_SAMPLES = 77_175L
+
+        /** DSCP expedited forwarding, the class AirPlay audio is expected to use. */
+        private const val TRAFFIC_CLASS_EF = 0xB8
     }
 }

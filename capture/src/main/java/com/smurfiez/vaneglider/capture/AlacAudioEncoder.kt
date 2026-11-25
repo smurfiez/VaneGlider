@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
 import android.media.projection.MediaProjection
+import android.os.Process
 import android.util.Log
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -65,6 +66,9 @@ class AlacAudioEncoder(private val projection: MediaProjection) : AudioFrameSour
         audioRecord.startRecording()
 
         val reader = thread(name = "kite-alac-reader") {
+            // A 352-sample frame is 8 ms; a normal-priority thread loses the
+            // race against the rest of the app and the capture buffer overruns.
+            runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO) }
             val frameBytes = FRAME_SAMPLES * CHANNELS * 2
             val pcm = ByteArray(frameBytes)
             val frame = ByteArray(AlacEncoder.MAX_FRAME_BYTES)
@@ -108,6 +112,6 @@ class AlacAudioEncoder(private val projection: MediaProjection) : AudioFrameSour
         const val CHANNELS = 2
         const val FRAME_SAMPLES = AlacEncoder.FRAME_SAMPLES
         const val MIN_BUFFER_FLOOR_BYTES = 4 * 1024
-        const val BUFFER_SLACK = 4
+        const val BUFFER_SLACK = 2
     }
 }
