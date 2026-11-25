@@ -79,19 +79,23 @@ class MirrorService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
-    /** Send loops own a real thread each; created per session, closed in cleanup. */
-    private var videoSendDispatcher: ExecutorCoroutineDispatcher? = null
-    private var audioSendDispatcher: ExecutorCoroutineDispatcher? = null
-
     /**
-     * A single thread with its priority set in the factory, not
-     * `limitedParallelism`: that only limits concurrency, so the loop resumes on
-     * arbitrary IO threads (the priority would not survive) and a raised nice
-     * would leak onto unrelated IO work.
+     * A single thread with the send loop's Linux niceness applied inside the
+     * thread body, not `limitedParallelism`: that only limits concurrency, so
+     * the loop resumes on arbitrary IO threads and a raised nice would leak onto
+     * unrelated IO work. `Thread.priority` cannot be used — it only accepts 1..10,
+     * while `Process.THREAD_PRIORITY_*` is -19..19.
      */
     private fun newSendDispatcher(name: String, priority: Int): ExecutorCoroutineDispatcher =
         Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, name).apply { this.priority = priority }
+            Thread(
+                {
+                    // Best-effort: a refused nice leaves the thread at default.
+                    runCatching { Process.setThreadPriority(priority) }
+                    runnable.run()
+                },
+                name,
+            )
         }.asCoroutineDispatcher()
 
     private var projection: MediaProjection? = null
@@ -432,6 +436,11 @@ class MirrorService : Service() {
         }
 
         var audioJob: Job? = null
+        // Per-session send threads: created before the try so the finally can
+        // always close them, and owned by this call rather than by a field a
+        // concurrent cleanupSession could shut down under a newer session.
+        val videoSendDispatcher = newSendDispatcher("kite-video-send", Process.THREAD_PRIORITY_DISPLAY)
+        val audioSendDispatcher = newSendDispatcher("kite-audio-send", Process.THREAD_PRIORITY_URGENT_AUDIO)
         try {
             val stream = mirrorSession.connect(
                 width = format.width,
@@ -489,13 +498,9 @@ class MirrorService : Service() {
             }
 
             // Start audio feed before video so priming packets arrive first.
-            // The two send loops get their own threads (see newSendDispatcher).
-            val videoDispatcher = newSendDispatcher("kite-video-send", Process.THREAD_PRIORITY_DISPLAY)
-                .also { videoSendDispatcher = it }
-            val audioDispatcher = newSendDispatcher("kite-audio-send", Process.THREAD_PRIORITY_URGENT_AUDIO)
-                .also { audioSendDispatcher = it }
+            // The two send loops run on this session's own threads.
             audioJob = audioEncoder?.let { audio ->
-                scope.launch(audioDispatcher) {
+                scope.launch(audioSendDispatcher) {
                     try {
                         pumpAudio(audio, mirrorSession)
                     } catch (e: Exception) {
@@ -581,7 +586,7 @@ class MirrorService : Service() {
                 }
                 // Its own thread at display priority: the socket write is the
                 // whole cost of a frame and must not queue behind the service.
-                withContext(videoDispatcher) {
+                withContext(videoSendDispatcher) {
                     var sentConfig = false
                     screenEncoder.frames()
                         // Deeper buffering rides out jitter at the cost of
@@ -642,7 +647,12 @@ class MirrorService : Service() {
                 )
             }
         } finally {
+            // The pump must be off its dispatcher before the dispatcher closes,
+            // or the shutdown races a send with RejectedExecutionException.
+            audioJob?.cancel()
             cleanupSession()
+            runCatching { videoSendDispatcher.close() }
+            runCatching { audioSendDispatcher.close() }
             stopSelf()
         }
     }
@@ -712,12 +722,6 @@ class MirrorService : Service() {
     private fun cleanupSession() {
         metricJob?.cancel()
         metricJob = null
-        // The send threads outlive neither the session nor this call: shut them
-        // down before the encoders, so nothing is dispatched onto a dead codec.
-        runCatching { videoSendDispatcher?.close() }
-        videoSendDispatcher = null
-        runCatching { audioSendDispatcher?.close() }
-        audioSendDispatcher = null
         runCatching { encoder?.close() }
         // AudioRecord holds an exclusive capture session; leaking it makes the
         // next mirroring attempt fail to open audio at all.
