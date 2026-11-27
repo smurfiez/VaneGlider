@@ -34,7 +34,7 @@
 
 ### 下载
 
-- [下载最新的已签名 APK](https://github.com/smurfiez/VaneGlider/releases/download/v2.1.0/VaneGlider-2.1.0.apk)
+- [下载最新的已签名 APK](https://github.com/smurfiez/VaneGlider/releases/download/v2.1.0/VaneGlider-v2.1.0.apk)
 - [查看所有发行版](https://github.com/smurfiez/VaneGlider/releases)
 
 打开下载的 APK。若 Android 提示，请允许浏览器或文件管理器安装未知应用，然后确认安装。

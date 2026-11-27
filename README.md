@@ -37,7 +37,7 @@ other AirPlay receiver.
 
 ### Download
 
-- [Download the latest signed APK](https://github.com/smurfiez/VaneGlider/releases/download/v2.1.0/VaneGlider-2.1.0.apk)
+- [Download the latest signed APK](https://github.com/smurfiez/VaneGlider/releases/download/v2.1.0/VaneGlider-v2.1.0.apk)
 - [See all releases](https://github.com/smurfiez/VaneGlider/releases)
 
 Open the downloaded APK. If Android asks, allow your browser or file manager to
