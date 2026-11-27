@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.1.0 — 2026-11-28
+
+### Performance
+
+- **Single-writer send path.** Each video packet leaves as one
+  `[header | payload]` write under a lock, so a feedback heartbeat can never
+  land between a header and its payload.
+- **Native ChaCha20-Poly1305 sealer** for the modern video channel, plus
+  allocation-free ALAC encoding, RTP packing and header building — the encoder
+  and crypto cost per frame drops sharply.
+- **Socket-wait-only adaptive bit rate.** The controller cuts on blocked write
+  time alone, so CPU load no longer looks like congestion and false-cuts a
+  healthy link.
+- **Dedicated send threads** (`vane-video-send` at display priority,
+  `vane-audio-send` at urgent-audio) with a keyframe watchdog that pauses
+  slices when no IDR arrives within a second.
+
 ## 2.0.0 — 2026-11-25
 
 VaneGlider is now its own app: new application ID (`com.smurfiez.vaneglider`),

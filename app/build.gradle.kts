@@ -5,7 +5,7 @@ plugins {
 }
 
 /** The one source of truth for the app version; release tags must match it. */
-val appVersionName = "2.0.0"
+val appVersionName = "2.1.0"
 
 android {
     namespace = "com.smurfiez.vaneglider"
@@ -15,7 +15,7 @@ android {
         applicationId = "com.smurfiez.vaneglider"
         minSdk = 29
         targetSdk = 36
-        versionCode = 2
+        versionCode = 3
         versionName = appVersionName
     }
 
