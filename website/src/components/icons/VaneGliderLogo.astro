@@ -1,0 +1,40 @@
+---
+interface Props {
+  size?: number;
+  withBadge?: boolean;
+  class?: string;
+}
+const { size = 36, withBadge = true, class: className = '' } = Astro.props;
+---
+
+<svg
+  width={size}
+  height={size}
+  viewBox="0 0 108 108"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+  class={className}
+  aria-hidden="true"
+>
+  {withBadge && <rect width="108" height="108" rx="26" fill="#9A4708" />}
+  <path d="M54 40.5 L71 78 L54 71.5 L37 78 Z" fill={withBadge ? '#FFFFFF' : 'currentColor'} />
+  <path
+    d="M54 40.5 L71 78 L54 71.5 Z"
+    fill={withBadge ? '#FFE7C2' : 'currentColor'}
+    fill-opacity={withBadge ? '1' : '0.65'}
+  />
+  <path
+    d="M46.95 36.59 A9.2 9.2 0 0 1 61.05 36.59"
+    stroke={withBadge ? '#FFFFFF' : 'currentColor'}
+    stroke-width="3.6"
+    stroke-linecap="round"
+    fill="none"
+  />
+  <path
+    d="M41.74 32.22 A16 16 0 0 1 66.26 32.22"
+    stroke={withBadge ? '#FFFFFF' : 'currentColor'}
+    stroke-width="3.6"
+    stroke-linecap="round"
+    fill="none"
+  />
+</svg>

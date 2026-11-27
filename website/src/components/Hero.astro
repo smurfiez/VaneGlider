@@ -1,0 +1,250 @@
+---
+import type { TranslationSchema } from '@/i18n/types';
+import type { ReleaseInfo } from '@/lib/release';
+import { withBase } from '@/i18n/utils';
+import UiIcons from './icons/UiIcons.astro';
+
+interface Props {
+  d: TranslationSchema;
+  release: ReleaseInfo;
+}
+
+const { d, release } = Astro.props;
+
+const receivers = d.hero.sampleReceivers;
+const modes = d.hero.modes;
+const lead = receivers[0];
+const ctaMeta =
+  release.isFallback === false && release.apkSizeMb ? `v${release.version} · ${release.apkSizeMb}` : null;
+const receiverIcon = (type: 'mac' | 'tv' | 'speaker') =>
+  type === 'tv' ? 'tv' : type === 'speaker' ? 'speaker' : 'mac';
+const audioLabel = modes.find((mode) => mode.id === 'audio')?.label ?? '';
+---
+
+<section class="py-14 sm:py-20">
+  <div class="mx-auto max-w-[1120px] px-4 sm:px-6 lg:px-8">
+    <div class="grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
+      <div class="min-w-0">
+        <p
+          class="inline-flex items-center gap-2 rounded-full bg-primary-container px-3 py-1 text-[12px] font-medium text-on-primary-container"
+        >
+          <span class="vg-tally-dot h-1.5 w-1.5 rounded-full bg-primary" data-live="true"></span>
+          {d.hero.pillPrefix}{release.version}{d.hero.pillSuffix}
+        </p>
+
+        <h1
+          class="mt-5 text-[clamp(2.125rem,4.2vw,3.375rem)] font-semibold leading-[1.08] tracking-[-0.03em]"
+        >
+          {d.hero.headline}
+        </h1>
+
+        <p
+          class="mt-5 max-w-[34rem] text-[1.0625rem] leading-[1.55] text-on-surface-variant sm:text-[1.125rem]"
+        >
+          {d.hero.subhead}
+        </p>
+
+        <div class="mt-7 flex flex-wrap items-center gap-3">
+          <a
+            href={release.apkUrl}
+            class="inline-flex min-h-[48px] items-center gap-2 rounded-full bg-primary px-6 text-[15px] font-medium text-on-primary hover:bg-[var(--vg-primary-hover)]"
+          >
+            {d.hero.primaryCta}
+            {ctaMeta && <span class="text-[12px] font-normal opacity-80">{ctaMeta}</span>}
+          </a>
+          <a
+            href="#devices"
+            class="inline-flex min-h-[48px] items-center gap-2 rounded-full border border-outline-variant bg-surface-low px-5 text-[15px] font-medium text-on-bg"
+          >
+            {d.hero.secondaryCta}
+            <UiIcons name="arrowDown" size={16} />
+          </a>
+        </div>
+
+        <p class="mt-3 text-[12px] text-outline">{d.hero.metaLine}</p>
+
+        <div
+          data-preview-root
+          data-live-prefix={d.hero.previewLivePrefix}
+          class="mt-8 max-w-[26rem] rounded-[20px] border border-outline-variant bg-surface-container p-3"
+        >
+          <p class="px-1 pb-2 text-[11px] uppercase tracking-[0.11em] text-outline">
+            {d.hero.previewLabel}
+          </p>
+
+          <div
+            data-preview-status-row
+            class="flex items-center gap-2.5 rounded-[14px] border border-primary bg-primary-container px-3 py-2.5 text-on-primary-container"
+          >
+            <span class="vg-tally-rail" data-state="active"></span>
+            <p class="min-w-0 text-[13px] font-medium leading-tight">
+              <span data-preview-status>{d.hero.previewLivePrefix} {lead?.name ?? ''}</span>
+              <span class="px-1 opacity-60">·</span>
+              <span data-preview-mode class="text-[12px] font-normal opacity-80">
+                {modes[0]?.label ?? ''}
+              </span>
+            </p>
+          </div>
+
+          <div class="mt-2 flex flex-col gap-1.5">
+            {
+              receivers.map((receiver, i) => (
+                <button
+                  type="button"
+                  data-receiver={receiver.id}
+                  data-name={receiver.name}
+                  data-audio-only={receiver.audioOnly ? 'true' : 'false'}
+                  data-active={i === 0 ? 'true' : 'false'}
+                  aria-pressed={i === 0 ? 'true' : 'false'}
+                  class="vg-card-interactive flex w-full items-center gap-3 rounded-[14px] border p-2.5 text-left"
+                >
+                  <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-surface-low text-on-surface-variant">
+                    <UiIcons name={receiverIcon(receiver.type)} size={20} />
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block text-[15px] font-medium leading-tight">{receiver.name}</span>
+                    <span class="mt-0.5 flex items-center gap-1 text-[12px] text-outline">
+                      <span class="truncate">{receiver.model}</span>
+                      {receiver.paired && <UiIcons name="check" size={12} />}
+                    </span>
+                  </span>
+                  {receiver.audioOnly && (
+                    <span class="shrink-0 rounded-full bg-surface-high px-2 py-1 text-[11px] text-on-surface-variant">
+                      {audioLabel}
+                    </span>
+                  )}
+                </button>
+              ))
+            }
+          </div>
+
+          <div role="group" aria-label={d.hero.previewLabel} class="mt-2 flex flex-wrap gap-1.5">
+            {
+              modes.map((mode, i) => (
+                <button
+                  type="button"
+                  data-mode={mode.id}
+                  data-active={i === 0 ? 'true' : 'false'}
+                  aria-pressed={i === 0 ? 'true' : 'false'}
+                  class="min-h-[36px] rounded-full px-2.5 text-[12px] font-medium"
+                >
+                  {mode.label}
+                </button>
+              ))
+            }
+          </div>
+
+          <p data-lock-note hidden class="mt-2 px-1 text-[12px] text-on-surface-variant">
+            {d.hero.previewAudioLockedNote}
+          </p>
+        </div>
+      </div>
+
+      <div class="relative mx-auto w-full max-w-[300px]">
+        <div
+          class="max-w-[300px] rounded-[32px] border border-outline-variant bg-surface-lowest p-2 shadow-[var(--vg-shadow-phone)]"
+        >
+          <img
+            src={withBase('/screenshots/home.png')}
+            alt={d.hero.headline}
+            width="1080"
+            height="2400"
+            loading="eager"
+            decoding="async"
+            class="block h-auto w-full rounded-[28px]"
+          />
+        </div>
+        <div
+          class="absolute -right-6 bottom-0 hidden w-[46%] rotate-[3deg] rounded-[20px] border border-outline-variant bg-surface-lowest p-1.5 shadow-[var(--vg-shadow-card)] sm:block"
+        >
+          <img
+            src={withBase('/screenshots/settings.png')}
+            alt=""
+            width="1080"
+            height="2400"
+            loading="lazy"
+            decoding="async"
+            class="block h-auto w-full rounded-[14px]"
+          />
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  const receiverButtons = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('[data-receiver]'),
+  );
+  const modeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-mode]'));
+  const statusText = document.querySelector<HTMLElement>('[data-preview-status]');
+  const modeText = document.querySelector<HTMLElement>('[data-preview-mode]');
+  const lockNote = document.querySelector<HTMLElement>('[data-lock-note]');
+  const prefix = document.querySelector<HTMLElement>('[data-preview-root]')?.dataset.livePrefix ?? '';
+
+  const setMode = (button: HTMLButtonElement | null) => {
+    if (!button || button.disabled) return;
+    modeButtons.forEach((chip) => {
+      const active = chip === button;
+      chip.dataset.active = active ? 'true' : 'false';
+      chip.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    if (modeText) modeText.textContent = button.textContent;
+  };
+
+  const setReceiver = (button: HTMLButtonElement) => {
+    receiverButtons.forEach((row) => {
+      const active = row === button;
+      row.dataset.active = active ? 'true' : 'false';
+      row.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+
+    if (statusText) {
+      statusText.textContent = `${prefix} ${button.dataset.name ?? ''}`.trim();
+    }
+
+    const audioOnly = button.dataset.audioOnly === 'true';
+    modeButtons.forEach((chip) => {
+      const locked = audioOnly && chip.dataset.mode !== 'audio';
+      chip.disabled = locked;
+      chip.dataset.locked = locked ? 'true' : 'false';
+      if (locked) chip.setAttribute('aria-disabled', 'true');
+      else chip.removeAttribute('aria-disabled');
+    });
+
+    if (audioOnly) {
+      setMode(modeButtons.find((chip) => chip.dataset.mode === 'audio') ?? null);
+    }
+    if (lockNote) lockNote.hidden = !audioOnly;
+  };
+
+  receiverButtons.forEach((button) => {
+    button.addEventListener('click', () => setReceiver(button));
+  });
+  modeButtons.forEach((button) => {
+    button.addEventListener('click', () => setMode(button));
+  });
+</script>
+
+<style>
+  [data-receiver][data-active='true'] {
+    background-color: var(--md-primary-container);
+    border-color: var(--md-primary);
+  }
+  [data-receiver][data-active='false'] {
+    background-color: var(--md-surface-container-highest);
+    border-color: transparent;
+  }
+  [data-mode][data-active='true'] {
+    background-color: var(--md-primary-container);
+    color: var(--md-on-primary-container);
+  }
+  [data-mode][data-active='false'] {
+    background-color: var(--md-surface-container-high);
+    color: var(--md-on-surface-variant);
+  }
+  [data-mode][data-locked='true'] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+</style>

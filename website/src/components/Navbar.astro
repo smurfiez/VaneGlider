@@ -1,0 +1,203 @@
+---
+import type { Locale, TranslationSchema } from '@/i18n/types';
+import type { ReleaseInfo } from '@/lib/release';
+import { localeHref } from '@/i18n/utils';
+import VaneGliderLogo from './icons/VaneGliderLogo.astro';
+import UiIcons from './icons/UiIcons.astro';
+
+interface Props {
+  d: TranslationSchema;
+  locale: Locale;
+  release: ReleaseInfo;
+}
+
+const { d, locale, release } = Astro.props;
+
+const links = [
+  { href: '#features', label: d.nav.features },
+  { href: '#devices', label: d.nav.devices },
+  { href: '#how-it-works', label: d.nav.howItWorks },
+  { href: '#help', label: d.nav.help },
+];
+const otherLocale: Locale = locale === 'en' ? 'zh-cn' : 'en';
+---
+
+<header
+  class="sticky top-0 z-40 h-16 border-b border-outline-variant"
+  style="background: var(--vg-header-bg); backdrop-filter: blur(14px);"
+>
+  <div class="mx-auto flex h-full max-w-[1120px] items-center justify-between gap-2 px-4 sm:px-6 lg:px-8">
+    <div class="flex min-w-0 items-center gap-5 lg:gap-8">
+      <a href={localeHref(locale)} class="inline-flex min-h-[44px] shrink-0 items-center gap-2.5">
+        <VaneGliderLogo size={32} />
+        <span class="text-[19px] font-semibold tracking-[-0.01em]">VaneGlider</span>
+      </a>
+
+      <nav class="hidden items-center gap-1 md:flex">
+        {
+          links.map((link) => (
+            <a
+              href={link.href}
+              class="inline-flex min-h-[44px] items-center rounded-full px-2.5 text-[14px] text-on-surface-variant hover:bg-surface-low hover:text-on-bg"
+            >
+              {link.label}
+            </a>
+          ))
+        }
+      </nav>
+    </div>
+
+    <div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
+      <a
+        href={localeHref(otherLocale)}
+        hreflang={otherLocale === 'zh-cn' ? 'zh-CN' : 'en'}
+        lang={otherLocale === 'zh-cn' ? 'zh-CN' : 'en'}
+        title={d.meta.switchAriaLabel}
+        class="inline-flex min-h-[44px] items-center justify-center rounded-full px-2.5 text-[13px] font-medium text-on-surface-variant hover:bg-surface-low hover:text-on-bg"
+      >
+        {d.meta.switchLabel}
+      </a>
+
+      <button
+        type="button"
+        data-theme-toggle
+        data-label-dark={d.nav.themeToggleLabel}
+        data-label-light={d.nav.themeToggleLabel}
+        aria-pressed="false"
+        aria-label={d.nav.themeToggleLabel}
+        class="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-outline-variant bg-surface-low text-on-bg"
+      >
+        <span class="theme-sun"><UiIcons name="sun" size={18} /></span>
+        <span class="theme-moon"><UiIcons name="moon" size={18} /></span>
+      </button>
+
+      <a
+        href={release.apkUrl}
+        class="hidden min-h-[44px] items-center gap-2 rounded-full bg-primary px-4 text-[14px] font-medium text-on-primary hover:bg-[var(--vg-primary-hover)] lg:inline-flex"
+      >
+        <UiIcons name="download" size={16} />
+        {d.nav.downloadCta}
+        {
+          release.version && (
+            <span class="rounded-full bg-on-primary/15 px-1.5 py-0.5 text-[11px] font-normal">
+              v{release.version}
+            </span>
+          )
+        }
+      </a>
+
+      <button
+        type="button"
+        data-menu-toggle
+        data-label-open={d.nav.menuOpenLabel}
+        data-label-close={d.nav.menuCloseLabel}
+        aria-expanded="false"
+        aria-controls="mobile-nav"
+        aria-label={d.nav.menuOpenLabel}
+        class="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-outline-variant bg-surface-low text-on-bg lg:hidden"
+      >
+        <UiIcons name="menu" size={20} />
+      </button>
+    </div>
+  </div>
+
+  <div id="mobile-nav" hidden class="absolute inset-x-0 top-full border-b border-outline-variant bg-bg lg:hidden">
+    <nav class="mx-auto max-w-[1120px] px-4 pb-4 pt-2 sm:px-6">
+      <ul class="flex flex-col">
+        {
+          links.map((link) => (
+            <li>
+              <a
+                href={link.href}
+                class="flex min-h-[44px] w-full items-center rounded-[14px] px-3 text-[15px] text-on-surface-variant hover:bg-surface-low hover:text-on-bg"
+              >
+                {link.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+      <a
+        href={release.apkUrl}
+        class="mt-2 inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-full bg-primary px-4 text-[15px] font-medium text-on-primary"
+      >
+        <UiIcons name="download" size={16} />
+        {d.nav.downloadCta}
+      </a>
+    </nav>
+  </div>
+</header>
+
+<script>
+  const root = document.documentElement;
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+
+  const themeBtn = document.querySelector<HTMLButtonElement>('[data-theme-toggle]');
+  if (themeBtn) {
+    const syncTheme = () => {
+      const isDark = (root.dataset.theme ?? (mq.matches ? 'dark' : 'light')) === 'dark';
+      themeBtn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
+      // The schema has one label string; it is reused for both next-action states.
+      const label = isDark ? themeBtn.dataset.labelLight : themeBtn.dataset.labelDark;
+      if (label) themeBtn.setAttribute('aria-label', label);
+    };
+
+    syncTheme();
+
+    themeBtn.addEventListener('click', () => {
+      const isDark = (root.dataset.theme ?? (mq.matches ? 'dark' : 'light')) === 'dark';
+      const next = isDark ? 'light' : 'dark';
+      try {
+        localStorage.setItem('vg-theme', next);
+      } catch {
+        /* storage may be unavailable; theme still applies for this page */
+      }
+      root.dataset.theme = next;
+      syncTheme();
+    });
+
+    mq.addEventListener('change', () => {
+      if (!root.dataset.theme) syncTheme();
+    });
+  }
+
+  const menuBtn = document.querySelector<HTMLButtonElement>('[data-menu-toggle]');
+  const mobileNav = document.getElementById('mobile-nav');
+  if (menuBtn && mobileNav) {
+    const setOpen = (open: boolean) => {
+      mobileNav.hidden = !open;
+      menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      const label = open ? menuBtn.dataset.labelClose : menuBtn.dataset.labelOpen;
+      if (label) menuBtn.setAttribute('aria-label', label);
+    };
+
+    menuBtn.addEventListener('click', () => setOpen(mobileNav.hidden));
+    mobileNav.querySelectorAll('a').forEach((link) => {
+      link.addEventListener('click', () => setOpen(false));
+    });
+  }
+</script>
+
+<style>
+  .theme-sun,
+  .theme-moon {
+    display: inline-flex;
+  }
+  .theme-moon {
+    display: none;
+  }
+  :root[data-theme='dark'] .theme-sun {
+    display: none;
+  }
+  :root[data-theme='dark'] .theme-moon {
+    display: inline-flex;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) .theme-sun {
+      display: none;
+    }
+    :root:not([data-theme='light']) .theme-moon {
+      display: inline-flex;
+    }
+  }
+</style>

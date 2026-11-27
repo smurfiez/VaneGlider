@@ -1,0 +1,91 @@
+---
+import '../styles/global.css';
+import { withBase } from '@/i18n/utils';
+
+interface Props {
+  locale: 'en' | 'zh-cn';
+  title: string;
+  description: string;
+  version: string;
+  apkUrl: string;
+}
+
+const { locale, title, description, version, apkUrl } = Astro.props;
+const htmlLang = locale === 'zh-cn' ? 'zh-CN' : 'en';
+const origin = Astro.site ?? new URL('https://smurfiez.github.io');
+const abs = (path: string) => new URL(withBase(path), origin).toString();
+const canonicalUrl = abs(locale === 'zh-cn' ? '/zh-cn/' : '/');
+const enUrl = abs('/');
+const zhUrl = abs('/zh-cn/');
+const ogImage = abs(locale === 'zh-cn' ? '/og-zh-cn.png' : '/og-en.png');
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'VaneGlider',
+  operatingSystem: 'Android 10+',
+  applicationCategory: 'MultimediaApplication',
+  softwareVersion: version,
+  license: 'https://www.gnu.org/licenses/lgpl-3.0.html',
+  url: canonicalUrl,
+  downloadUrl: apkUrl,
+  offers: {
+    '@type': 'Offer',
+    price: '0',
+    priceCurrency: 'USD',
+  },
+};
+---
+
+<!doctype html>
+<html lang={htmlLang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#FAF7F2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0E0D0B" media="(prefers-color-scheme: dark)" />
+
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="alternate" hreflang="en" href={enUrl} />
+    <link rel="alternate" hreflang="zh-CN" href={zhUrl} />
+    <link rel="alternate" hreflang="x-default" href={enUrl} />
+
+    <link rel="icon" href={withBase('/favicon.svg')} type="image/svg+xml" />
+    <link rel="icon" href={withBase('/favicon-32.png')} sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href={withBase('/apple-touch-icon.png')} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:locale" content={locale === 'zh-cn' ? 'zh_CN' : 'en_US'} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <script is:inline>
+      (function () {
+        try {
+          var stored = localStorage.getItem('vg-theme');
+          if (stored === 'light' || stored === 'dark') {
+            document.documentElement.setAttribute('data-theme', stored);
+          }
+        } catch (_) {}
+      })();
+    </script>
+
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+  </head>
+  <body class="bg-bg text-on-bg font-sans antialiased">
+    <a
+      href="#main"
+      class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-primary focus:px-4 focus:py-2 focus:text-on-primary"
+      >Skip to content</a
+    >
+    <slot />
+  </body>
+</html>

@@ -1,0 +1,45 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { getDictionary } from '@/i18n/utils';
+import { getLatestRelease } from '@/lib/release';
+import type { Locale } from '@/i18n/types';
+import Navbar from './Navbar.astro';
+import Hero from './Hero.astro';
+import BenefitsBento from './BenefitsBento.astro';
+import CastModes from './CastModes.astro';
+import CompatibilityMatrix from './CompatibilityMatrix.astro';
+import GettingStarted from './GettingStarted.astro';
+import QualityShowcase from './QualityShowcase.astro';
+import TroubleshootingFaq from './TroubleshootingFaq.astro';
+import DownloadBanner from './DownloadBanner.astro';
+import Footer from './Footer.astro';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const d = getDictionary(locale);
+const release = await getLatestRelease();
+---
+
+<BaseLayout
+  locale={locale}
+  title={d.meta.title}
+  description={d.meta.description}
+  version={release.version}
+  apkUrl={release.apkUrl}
+>
+  <Navbar d={d} locale={locale} release={release} />
+  <main id="main">
+    <Hero d={d} release={release} />
+    <BenefitsBento d={d} />
+    <CastModes d={d} />
+    <CompatibilityMatrix d={d} />
+    <GettingStarted d={d} />
+    <QualityShowcase d={d} />
+    <TroubleshootingFaq d={d} />
+    <DownloadBanner d={d} release={release} />
+  </main>
+  <Footer d={d} locale={locale} />
+</BaseLayout>

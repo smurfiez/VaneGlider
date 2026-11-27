@@ -1,0 +1,240 @@
+---
+import type { TranslationSchema } from '@/i18n/types';
+import { withBase } from '@/i18n/utils';
+import UiIcons from './icons/UiIcons.astro';
+
+interface Props {
+  d: TranslationSchema;
+}
+
+const { d } = Astro.props;
+const tipIcons = ['battery', 'bookmark', 'fileText'];
+const defaultHint = d.quality.resolutions.find((r) => r.value === '1080p')?.hint ?? '';
+---
+
+<section class="py-14 sm:py-20" aria-labelledby="quality-heading">
+  <div class="mx-auto max-w-[1120px] px-4 sm:px-6 lg:px-8">
+    <p class="text-[11px] font-medium uppercase tracking-[0.11em] text-outline">{d.quality.eyebrow}</p>
+    <h2
+      id="quality-heading"
+      class="mt-2 text-[clamp(1.625rem,2.5vw,2.25rem)] font-semibold leading-[1.18] tracking-[-0.02em] max-w-[42rem]"
+    >
+      {d.quality.heading}
+    </h2>
+    <p class="mt-3 text-[16px] leading-[1.55] text-on-surface-variant max-w-[44rem]">{d.quality.subtitle}</p>
+
+    <div class="mt-10 grid items-start gap-10 lg:grid-cols-2">
+      <div
+        class="mx-auto w-full max-w-[300px] rounded-[32px] border border-outline-variant bg-surface-lowest p-2 shadow-[var(--vg-shadow-phone)]"
+      >
+        <img
+          src={withBase('/screenshots/settings.png')}
+          alt={d.quality.heading}
+          width="1080"
+          height="2400"
+          loading="lazy"
+          decoding="async"
+          class="block w-full h-auto rounded-[28px]"
+        />
+      </div>
+
+      <div class="min-w-0" data-quality-sim data-auto-note={d.quality.autoAdaptNote} data-manual-note={d.quality.manualRangeNote}>
+        <div class="rounded-[20px] border border-outline-variant bg-surface-low p-6">
+          <div class="space-y-5">
+            <div>
+              <p class="text-[13px] font-medium">{d.quality.resolutionLabel}</p>
+              <div class="mt-2 flex flex-wrap gap-2" role="group" aria-label={d.quality.resolutionLabel}>
+                {
+                  d.quality.resolutions.map((r) => (
+                    <button
+                      type="button"
+                      data-quality={r.value}
+                      data-hint={r.hint}
+                      aria-pressed={r.value === '1080p' ? 'true' : 'false'}
+                      class="min-h-[44px] rounded-full bg-surface-high px-4 text-[13px] font-medium text-on-surface-variant transition-colors aria-pressed:bg-primary-container aria-pressed:text-on-primary-container"
+                    >
+                      {r.label}
+                    </button>
+                  ))
+                }
+              </div>
+              <p data-quality-hint class="mt-2 text-[12px] leading-[1.5] text-on-surface-variant">{defaultHint}</p>
+            </div>
+
+            <div>
+              <p class="text-[13px] font-medium">{d.quality.fpsLabel}</p>
+              <div class="mt-2 flex flex-wrap gap-2" role="group" aria-label={d.quality.fpsLabel}>
+                {
+                  d.quality.fpsOptions.map((n) => (
+                    <button
+                      type="button"
+                      data-fps={n}
+                      aria-pressed={n === 30 ? 'true' : 'false'}
+                      class="min-h-[44px] rounded-full bg-surface-high px-4 text-[13px] font-medium text-on-surface-variant transition-colors aria-pressed:bg-primary-container aria-pressed:text-on-primary-container"
+                    >
+                      {n} fps
+                    </button>
+                  ))
+                }
+              </div>
+            </div>
+
+            <div>
+              <p class="text-[13px] font-medium">{d.quality.bitRateLabel}</p>
+              <div
+                class="mt-2 flex w-full rounded-full bg-surface-container p-1"
+                role="group"
+                aria-label={d.quality.bitRateLabel}
+              >
+                <button
+                  type="button"
+                  data-bitrate-mode="auto"
+                  aria-pressed="true"
+                  class="min-h-[44px] flex-1 rounded-full px-4 text-[13px] font-medium text-on-surface-variant transition-colors aria-pressed:bg-primary-container aria-pressed:text-on-primary-container"
+                >
+                  {d.quality.bitRateAuto}
+                </button>
+                <button
+                  type="button"
+                  data-bitrate-mode="custom"
+                  aria-pressed="false"
+                  class="min-h-[44px] flex-1 rounded-full px-4 text-[13px] font-medium text-on-surface-variant transition-colors aria-pressed:bg-primary-container aria-pressed:text-on-primary-container"
+                >
+                  {d.quality.bitRateCustom}
+                </button>
+              </div>
+              <div data-bitrate-slider class="mt-4 flex items-center gap-3" hidden>
+                <input
+                  type="range"
+                  min="2"
+                  max="200"
+                  step="1"
+                  value="30"
+                  data-bitrate-range
+                  aria-label={d.quality.bitRateCustom}
+                  class="w-full min-w-0 accent-primary"
+                />
+                <span
+                  data-bitrate-value
+                  class="shrink-0 rounded-full bg-surface-container px-2.5 py-1 text-[12px] font-medium tabular-nums"
+                >
+                  30 Mbps
+                </span>
+              </div>
+            </div>
+
+            <div class="rounded-[14px] bg-surface-high px-4 py-3">
+              <p class="text-[11px] uppercase tracking-[0.11em] text-outline">{d.quality.liveEstimateLabel}</p>
+              <span data-estimate class="text-[19px] font-semibold">~6.2 Mbps</span>
+              <p data-estimate-note class="text-[12px] text-on-surface-variant">{d.quality.autoAdaptNote}</p>
+            </div>
+          </div>
+        </div>
+
+        <ul class="mt-4 space-y-3">
+          {
+            d.quality.systemTips.map((tip, i) => (
+              <li class="flex items-start gap-3 rounded-[14px] bg-surface-container p-4">
+                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-surface-high text-on-surface-variant">
+                  <UiIcons name={tipIcons[i] ?? 'sparkle'} size={18} />
+                </span>
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <p class="text-[14px] font-medium">{tip.title}</p>
+                    {tip.status && (
+                      <span class="rounded-full bg-tertiary-container px-2 py-0.5 text-[11px] text-on-tertiary-container">
+                        {tip.status}
+                      </span>
+                    )}
+                  </div>
+                  <p class="mt-1 text-[13px] leading-[1.5] text-on-surface-variant">{tip.body}</p>
+                </div>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  type Quality = 'native' | '1080p' | '720p' | '540p';
+
+  // Sample geometry mirrors VideoFormat.defaultBitRate: (w × h × fps) / 10 bps, clamped to 2–200 Mbps.
+  const GEOMETRY: Record<Quality, [number, number]> = {
+    native: [2400, 1080],
+    '1080p': [1920, 1080],
+    '720p': [1280, 720],
+    '540p': [960, 540],
+  };
+
+  const calcAutoMbps = (q: Quality, fps: number): number => {
+    const [w, h] = GEOMETRY[q];
+    const bps = Math.min(200_000_000, Math.max(2_000_000, Math.floor((w * h * fps) / 10)));
+    return Math.round((bps / 1_000_000) * 10) / 10;
+  };
+
+  const root = document.querySelector<HTMLElement>('[data-quality-sim]');
+
+  if (root) {
+    let quality: Quality = '1080p';
+    let fps = 30;
+    let mode: 'auto' | 'custom' = 'auto';
+
+    const slider = root.querySelector<HTMLInputElement>('[data-bitrate-range]');
+    const sliderWrap = root.querySelector<HTMLElement>('[data-bitrate-slider]');
+    const valueBadge = root.querySelector<HTMLElement>('[data-bitrate-value]');
+    const estimate = root.querySelector<HTMLElement>('[data-estimate]');
+    const note = root.querySelector<HTMLElement>('[data-estimate-note]');
+    const hint = root.querySelector<HTMLElement>('[data-quality-hint]');
+    let custom = Number(slider?.value ?? 30);
+
+    const sync = () => {
+      root.querySelectorAll<HTMLElement>('[data-quality]').forEach((btn) => {
+        const on = btn.dataset.quality === quality;
+        btn.setAttribute('aria-pressed', String(on));
+        if (on && hint) hint.textContent = btn.dataset.hint ?? '';
+      });
+      root.querySelectorAll<HTMLElement>('[data-fps]').forEach((btn) => {
+        btn.setAttribute('aria-pressed', String(Number(btn.dataset.fps) === fps));
+      });
+      root.querySelectorAll<HTMLElement>('[data-bitrate-mode]').forEach((btn) => {
+        btn.setAttribute('aria-pressed', String(btn.dataset.bitrateMode === mode));
+      });
+
+      if (sliderWrap) sliderWrap.hidden = mode !== 'custom';
+      if (valueBadge) valueBadge.textContent = `${custom} Mbps`;
+
+      if (estimate) {
+        estimate.textContent =
+          mode === 'auto' ? `~${calcAutoMbps(quality, fps).toFixed(1)} Mbps` : `${custom} Mbps`;
+      }
+      if (note) note.textContent = (mode === 'auto' ? root.dataset.autoNote : root.dataset.manualNote) ?? '';
+    };
+
+    root.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target.closest<HTMLElement>('button') : null;
+      if (!target || !root.contains(target)) return;
+
+      const q = target.dataset.quality as Quality | undefined;
+      if (q && q in GEOMETRY) {
+        quality = q;
+      } else if (target.dataset.fps) {
+        fps = Number(target.dataset.fps);
+      } else if (target.dataset.bitrateMode === 'auto' || target.dataset.bitrateMode === 'custom') {
+        mode = target.dataset.bitrateMode;
+      } else {
+        return;
+      }
+      sync();
+    });
+
+    slider?.addEventListener('input', () => {
+      custom = Number(slider.value);
+      sync();
+    });
+
+    sync();
+  }
+</script>

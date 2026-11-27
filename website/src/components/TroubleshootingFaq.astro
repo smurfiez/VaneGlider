@@ -1,0 +1,115 @@
+---
+import type { TranslationSchema } from '@/i18n/types';
+import UiIcons from './icons/UiIcons.astro';
+
+interface Props {
+  d: TranslationSchema;
+}
+
+const { d } = Astro.props;
+
+// Answers are plain dictionary strings; bare URLs are auto-linked, everything else stays text.
+const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const linkify = (text: string) =>
+  text
+    .replace(/[&<>"']/g, (c) => ESC[c] ?? c)
+    .replace(/(https?:\/\/[^\s<]+)/g, (raw) => {
+      const trailing = raw.match(/[.,;:)\]]+$/)?.[0] ?? '';
+      const href = trailing ? raw.slice(0, -trailing.length) : raw;
+      return `<a class="underline underline-offset-2 hover:text-on-bg" href="${href}" rel="noopener noreferrer">${href}</a>${trailing}`;
+    });
+---
+
+<section id="help" class="py-14 sm:py-20" aria-labelledby="help-heading">
+  <div class="mx-auto max-w-[1120px] px-4 sm:px-6 lg:px-8">
+    <p class="text-[11px] font-medium uppercase tracking-[0.11em] text-outline">{d.faq.eyebrow}</p>
+    <h2
+      id="help-heading"
+      class="mt-2 text-[clamp(1.625rem,2.5vw,2.25rem)] font-semibold leading-[1.18] tracking-[-0.02em] max-w-[42rem]"
+    >
+      {d.faq.heading}
+    </h2>
+
+    <div class="relative mt-6 w-full max-w-[28rem]">
+      <UiIcons
+        name="search"
+        size={18}
+        class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-outline"
+      />
+      <input
+        type="search"
+        data-faq-search
+        placeholder={d.faq.searchPlaceholder}
+        aria-label={d.faq.searchPlaceholder}
+        class="w-full max-w-[28rem] min-h-[44px] rounded-full border border-outline-variant bg-surface-low pl-10 pr-4 text-[14px] placeholder:text-outline"
+      />
+    </div>
+
+    <div class="mt-6 space-y-3" data-faq-list>
+      {
+        d.faq.items.map((item) => (
+          <details class="group rounded-[20px] border border-outline-variant bg-surface-low" data-faq-item>
+            <summary class="flex min-h-[52px] cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-[16px] font-medium">
+              <span>{item.q}</span>
+              <UiIcons name="chevronDown" size={18} class="shrink-0 transition-transform group-open:rotate-180" />
+            </summary>
+            <div class="px-5 pb-5 text-[14px] leading-[1.55] text-on-surface-variant" set:html={linkify(item.a)} />
+          </details>
+        ))
+      }
+    </div>
+
+    <div
+      data-faq-empty
+      hidden
+      class="rounded-[20px] border border-dashed border-outline-variant p-6 text-[14px] text-on-surface-variant"
+    >
+      <p>{d.faq.emptyResult}</p>
+      <a
+        href="https://github.com/smurfiez/VaneGlider/issues"
+        rel="noopener noreferrer"
+        class="mt-2 inline-flex min-h-[44px] items-center gap-1.5 underline underline-offset-2 hover:text-on-bg"
+      >
+        {d.footer.links.issues}
+        <UiIcons name="external" size={14} />
+      </a>
+    </div>
+  </div>
+</section>
+
+<style>
+  summary::-webkit-details-marker {
+    display: none;
+  }
+</style>
+
+<script>
+  const input = document.querySelector<HTMLInputElement>('[data-faq-search]');
+  const list = document.querySelector<HTMLElement>('[data-faq-list]');
+  const empty = document.querySelector<HTMLElement>('[data-faq-empty]');
+
+  if (input && list) {
+    const items = Array.from(list.querySelectorAll<HTMLDetailsElement>('details[data-faq-item]'));
+
+    const apply = () => {
+      const query = input.value.trim().toLowerCase();
+      let matches = 0;
+
+      for (const item of items) {
+        const hit = !query || (item.textContent ?? '').toLowerCase().includes(query);
+        item.hidden = !hit;
+        if (hit) matches += 1;
+      }
+
+      if (query && matches > 0 && matches <= 2) {
+        for (const item of items) {
+          if (!item.hidden) item.open = true;
+        }
+      }
+
+      if (empty) empty.hidden = matches > 0;
+    };
+
+    input.addEventListener('input', apply);
+  }
+</script>

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://smurfiez.github.io/VaneGlider/sitemap-index.xml

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  VaneGlider monochrome adaptive icon (Android 13+ Material You): single-color
+  silhouette with a tapered negative-space center fold crease so the folded
+  glider identity stays legible when tinted.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Wing silhouette with tapered center fold cutout from (54,48) to tail notch. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,40.5 L71,78 L55.1,71.92 L54,48 L52.9,71.92 L37,78 Z" />
+
+    <!-- Inner overhead signal arc. -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M46.95,36.59 A9.2,9.2 0 0,1 61.05,36.59"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeWidth="3.6" />
+
+    <!-- Outer overhead signal arc. -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M41.74,32.22 A16,16 0 0,1 66.26,32.22"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeWidth="3.6" />
+</vector>

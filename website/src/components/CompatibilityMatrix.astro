@@ -1,0 +1,193 @@
+---
+import type { TranslationSchema } from '@/i18n/types';
+import UiIcons from '@/components/icons/UiIcons.astro';
+
+interface Props {
+  d: TranslationSchema;
+}
+
+const { d } = Astro.props;
+const { compatibility } = d;
+
+const supportColumns = [
+  { key: 'screenSound', label: compatibility.columns.screenSound },
+  { key: 'screenOnly', label: compatibility.columns.screenOnly },
+  { key: 'soundOnly', label: compatibility.columns.soundOnly },
+] as const;
+
+const categoryLabel = (id: string) => compatibility.filters.find((f) => f.id === id)?.label ?? id;
+---
+
+<section id="devices" class="py-14 sm:py-20">
+  <div class="mx-auto max-w-[1120px] px-4 sm:px-6 lg:px-8" data-compat>
+    <header>
+      <p class="text-[11px] font-medium uppercase tracking-[0.11em] text-outline">{compatibility.eyebrow}</p>
+      <h2
+        class="mt-3 max-w-[42rem] text-[clamp(1.625rem,2.5vw,2.25rem)] font-semibold leading-[1.18] tracking-[-0.02em]"
+      >
+        {compatibility.heading}
+      </h2>
+      <p class="mt-3 max-w-[44rem] text-[16px] leading-[1.55] text-on-surface-variant">{compatibility.subtitle}</p>
+    </header>
+
+    <div class="mt-6 flex flex-wrap gap-2" role="group" aria-label={compatibility.eyebrow}>
+      {
+        compatibility.filters.map((filter) => (
+          <button
+            type="button"
+            data-filter={filter.id}
+            data-active={filter.id === 'all' ? 'true' : 'false'}
+            aria-pressed={filter.id === 'all'}
+            class="min-h-[40px] rounded-full border border-outline-variant bg-surface-low px-4 text-[13px] font-medium text-on-surface-variant transition-colors data-[active=true]:border-transparent data-[active=true]:bg-primary data-[active=true]:text-on-primary"
+          >
+            {filter.label}
+          </button>
+        ))
+      }
+    </div>
+
+    <p class="sr-only" aria-live="polite" data-filter-status></p>
+
+    <div class="mt-6 hidden overflow-hidden rounded-[20px] border border-outline-variant bg-surface-low md:block">
+      <table class="w-full border-collapse text-left">
+        <caption class="sr-only">{compatibility.heading}</caption>
+        <thead>
+          <tr>
+            <th
+              scope="col"
+              class="border-b border-outline-variant px-5 py-3 text-[11px] font-medium uppercase tracking-[0.11em] text-outline"
+            >
+              {compatibility.columns.receiver}
+            </th>
+            {
+              supportColumns.map((column) => (
+                <th
+                  scope="col"
+                  class="border-b border-outline-variant px-5 py-3 text-[11px] font-medium uppercase tracking-[0.11em] text-outline"
+                >
+                  {column.label}
+                </th>
+              ))
+            }
+            <th
+              scope="col"
+              class="border-b border-outline-variant px-5 py-3 text-[11px] font-medium uppercase tracking-[0.11em] text-outline"
+            >
+              {compatibility.columns.notes}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {
+            compatibility.rows.map((row) => (
+              <tr data-category={row.category} class="border-b border-outline-variant last:border-0">
+                <th scope="row" class="px-5 py-3.5 align-middle text-[15px] font-medium">
+                  <span class="block">{row.name}</span>
+                  <span class="mt-0.5 block text-[12px] font-normal text-outline">{categoryLabel(row.category)}</span>
+                </th>
+                {supportColumns.map((column) => (
+                  <td class="px-5 py-3.5 align-middle">
+                    {row[column.key] === 'yes' && (
+                      <span role="img" aria-label={compatibility.badges.yes} class="inline-flex text-[color:var(--md-tertiary)]">
+                        <UiIcons name="check" size={16} />
+                      </span>
+                    )}
+                    {row[column.key] === 'varies' && (
+                      <span class="inline-flex rounded-full bg-surface-high px-2 py-0.5 text-[11px] text-on-surface-variant">
+                        {compatibility.badges.varies}
+                      </span>
+                    )}
+                    {row[column.key] === 'no' && (
+                      <span role="img" aria-label={compatibility.badges.no} class="inline-flex text-outline">
+                        <UiIcons name="dash" size={16} />
+                      </span>
+                    )}
+                  </td>
+                ))}
+                <td class="px-5 py-3.5 text-[13px] leading-[1.5] text-on-surface-variant">{row.note}</td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mt-6 grid gap-3 md:hidden">
+      {
+        compatibility.rows.map((row) => (
+          <article
+            data-category={row.category}
+            data-compat-card
+            class="vg-card-interactive rounded-[20px] border border-outline-variant bg-surface-low p-4"
+          >
+            <header>
+              <span class="block text-[11px] uppercase tracking-[0.11em] text-outline">{categoryLabel(row.category)}</span>
+              <h3 class="mt-1 text-[15px] font-medium">{row.name}</h3>
+            </header>
+
+            <dl class="mt-3 border-y border-outline-variant">
+              {supportColumns.map((column) => (
+                <div class="flex items-center justify-between gap-3 py-2">
+                  <dt class="text-[12px] text-on-surface-variant">{column.label}</dt>
+                  <dd>
+                    {row[column.key] === 'yes' && (
+                      <span role="img" aria-label={compatibility.badges.yes} class="inline-flex text-[color:var(--md-tertiary)]">
+                        <UiIcons name="check" size={16} />
+                      </span>
+                    )}
+                    {row[column.key] === 'varies' && (
+                      <span class="inline-flex rounded-full bg-surface-high px-2 py-0.5 text-[11px] text-on-surface-variant">
+                        {compatibility.badges.varies}
+                      </span>
+                    )}
+                    {row[column.key] === 'no' && (
+                      <span role="img" aria-label={compatibility.badges.no} class="inline-flex text-outline">
+                        <UiIcons name="dash" size={16} />
+                      </span>
+                    )}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+
+            <p class="mt-3 text-[13px] leading-[1.5] text-on-surface-variant">{row.note}</p>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll<HTMLElement>('[data-compat]').forEach((root) => {
+    const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>('[data-filter]'));
+    const rows = Array.from(root.querySelectorAll<HTMLTableRowElement>('tr[data-category]'));
+    const cards = Array.from(root.querySelectorAll<HTMLElement>('[data-compat-card]'));
+    const status = root.querySelector<HTMLElement>('[data-filter-status]');
+    if (!buttons.length || !rows.length) return;
+
+    const total = rows.length;
+
+    function apply(filter: string) {
+      let visible = 0;
+      rows.forEach((row) => {
+        const match = filter === 'all' || row.dataset.category === filter;
+        row.hidden = !match;
+        if (match) visible += 1;
+      });
+      cards.forEach((card) => {
+        card.hidden = !(filter === 'all' || card.dataset.category === filter);
+      });
+      buttons.forEach((button) => {
+        const active = button.dataset.filter === filter;
+        button.setAttribute('aria-pressed', String(active));
+        button.dataset.active = String(active);
+      });
+      if (status) status.textContent = `${visible} / ${total}`;
+    }
+
+    buttons.forEach((button) => {
+      button.addEventListener('click', () => apply(button.dataset.filter ?? 'all'));
+    });
+  });
+</script>

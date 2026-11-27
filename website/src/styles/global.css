@@ -1,0 +1,278 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   VaneGlider "On Air" Material 3 Color System
+   Ported 1:1 from app/src/main/java/com/smurfiez/vaneglider/ui/theme/Color.kt
+   ========================================================================== */
+
+:root {
+  color-scheme: light dark;
+
+  /* Light Palette — All 29 Material 3 Color Roles */
+  --md-primary: #9A4708;
+  --md-on-primary: #FFFFFF;
+  --md-primary-container: #FFE7C2;
+  --md-on-primary-container: #3B1D00;
+
+  --md-secondary: #5F5A52;
+  --md-on-secondary: #FFFFFF;
+  --md-secondary-container: #EFE7DA;
+  --md-on-secondary-container: #1E1B16;
+
+  --md-tertiary: #4A6B63;
+  --md-on-tertiary: #FFFFFF;
+  --md-tertiary-container: #CDE8DF;
+  --md-on-tertiary-container: #07201B;
+
+  --md-error: #B3261E;
+  --md-on-error: #FFFFFF;
+  --md-error-container: #F9DEDC;
+  --md-on-error-container: #410E0B;
+
+  --md-background: #FAF7F2;
+  --md-on-background: #191713;
+  --md-surface: #FAF7F2;
+  --md-on-surface: #191713;
+  --md-surface-variant: #E7E0D5;
+  --md-on-surface-variant: #4E4639;
+  /* Darkened from Color.kt (#7F7669) so 12px outline text clears AA on every surface */
+  --md-outline: #625850;
+  --md-outline-variant: #D3CABB;
+
+  --md-surface-container-lowest: #FFFFFF;
+  --md-surface-container-low: #F5F1E9;
+  --md-surface-container: #EFEAE1;
+  --md-surface-container-high: #E9E3D8;
+  --md-surface-container-highest: #E2DCD0;
+
+  /* Web-derived helpers (strictly derived from M3 roles above) */
+  --vg-header-bg: rgba(250, 247, 242, 0.86);
+  --vg-primary-hover: #833B05;
+  --vg-on-primary-container-muted: rgba(59, 29, 0, 0.72);
+  --vg-shadow-card: 0 1px 2px rgba(25, 23, 19, 0.04), 0 8px 24px rgba(25, 23, 19, 0.05);
+  --vg-shadow-phone: 0 24px 60px -16px rgba(25, 23, 19, 0.18), 0 0 0 1px rgba(25, 23, 19, 0.08);
+}
+
+/* Automatic OS Dark Mode when user has not explicitly picked a theme */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --md-primary: #FFB86B;
+    --md-on-primary: #3F2100;
+    --md-primary-container: #5A3200;
+    --md-on-primary-container: #FFDDB3;
+
+    --md-secondary: #CFC7B8;
+    --md-on-secondary: #34302A;
+    --md-secondary-container: #3D3830;
+    --md-on-secondary-container: #EBE2D4;
+
+    --md-tertiary: #9ED4C6;
+    --md-on-tertiary: #003730;
+    --md-tertiary-container: #1C4F46;
+    --md-on-tertiary-container: #BAEBE0;
+
+    --md-error: #FFB4AB;
+    --md-on-error: #690005;
+    --md-error-container: #93000A;
+    --md-on-error-container: #FFDAD6;
+
+    --md-background: #0E0D0B;
+    --md-on-background: #ECE6DC;
+    --md-surface: #0E0D0B;
+    --md-on-surface: #ECE6DC;
+    --md-surface-variant: #4C463B;
+    --md-on-surface-variant: #D1C8B8;
+    --md-outline: #B3AA9A;
+    --md-outline-variant: #4C463B;
+
+    --md-surface-container-lowest: #080807;
+    --md-surface-container-low: #161512;
+    --md-surface-container: #1A1916;
+    --md-surface-container-high: #25231F;
+    --md-surface-container-highest: #302D28;
+
+    --vg-header-bg: rgba(14, 13, 11, 0.86);
+    --vg-primary-hover: #FFC88A;
+    --vg-on-primary-container-muted: rgba(255, 221, 179, 0.72);
+    --vg-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 28px rgba(0, 0, 0, 0.3);
+    --vg-shadow-phone: 0 28px 64px -16px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(236, 230, 220, 0.12);
+  }
+}
+
+/* Explicit User Toggle Override */
+:root[data-theme="dark"] {
+  --md-primary: #FFB86B;
+  --md-on-primary: #3F2100;
+  --md-primary-container: #5A3200;
+  --md-on-primary-container: #FFDDB3;
+
+  --md-secondary: #CFC7B8;
+  --md-on-secondary: #34302A;
+  --md-secondary-container: #3D3830;
+  --md-on-secondary-container: #EBE2D4;
+
+  --md-tertiary: #9ED4C6;
+  --md-on-tertiary: #003730;
+  --md-tertiary-container: #1C4F46;
+  --md-on-tertiary-container: #BAEBE0;
+
+  --md-error: #FFB4AB;
+  --md-on-error: #690005;
+  --md-error-container: #93000A;
+  --md-on-error-container: #FFDAD6;
+
+  --md-background: #0E0D0B;
+  --md-on-background: #ECE6DC;
+  --md-surface: #0E0D0B;
+  --md-on-surface: #ECE6DC;
+  --md-surface-variant: #4C463B;
+  --md-on-surface-variant: #D1C8B8;
+  --md-outline: #B3AA9A;
+  --md-outline-variant: #4C463B;
+
+  --md-surface-container-lowest: #080807;
+  --md-surface-container-low: #161512;
+  --md-surface-container: #1A1916;
+  --md-surface-container-high: #25231F;
+  --md-surface-container-highest: #302D28;
+
+  --vg-header-bg: rgba(14, 13, 11, 0.86);
+  --vg-primary-hover: #FFC88A;
+  --vg-on-primary-container-muted: rgba(255, 221, 179, 0.72);
+  --vg-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 28px rgba(0, 0, 0, 0.3);
+  --vg-shadow-phone: 0 28px 64px -16px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(236, 230, 220, 0.12);
+}
+
+/* Tailwind CSS v4 @theme mapping */
+@theme inline {
+  --color-primary: var(--md-primary);
+  --color-on-primary: var(--md-on-primary);
+  --color-primary-container: var(--md-primary-container);
+  --color-on-primary-container: var(--md-on-primary-container);
+
+  --color-secondary: var(--md-secondary);
+  --color-on-secondary: var(--md-on-secondary);
+  --color-secondary-container: var(--md-secondary-container);
+  --color-on-secondary-container: var(--md-on-secondary-container);
+
+  --color-tertiary: var(--md-tertiary);
+  --color-on-tertiary: var(--md-on-tertiary);
+  --color-tertiary-container: var(--md-tertiary-container);
+  --color-on-tertiary-container: var(--md-on-tertiary-container);
+
+  --color-error: var(--md-error);
+  --color-on-error: var(--md-on-error);
+  --color-error-container: var(--md-error-container);
+  --color-on-error-container: var(--md-on-error-container);
+
+  --color-bg: var(--md-background);
+  --color-on-bg: var(--md-on-background);
+  --color-surface: var(--md-surface);
+  --color-on-surface: var(--md-on-surface);
+  --color-surface-variant: var(--md-surface-variant);
+  --color-on-surface-variant: var(--md-on-surface-variant);
+  --color-outline: var(--md-outline);
+  --color-outline-variant: var(--md-outline-variant);
+
+  --color-surface-lowest: var(--md-surface-container-lowest);
+  --color-surface-low: var(--md-surface-container-low);
+  --color-surface-container: var(--md-surface-container);
+  --color-surface-high: var(--md-surface-container-high);
+  --color-surface-highest: var(--md-surface-container-highest);
+
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+
+  --radius-card: 20px;
+  --radius-card-pressed: 28px;
+  --radius-well: 14px;
+  --radius-pill: 9999px;
+}
+
+/* Base rules */
+@layer base {
+  html {
+    background-color: var(--md-background);
+    color: var(--md-on-background);
+    font-family: var(--font-sans);
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    overflow-x: clip;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: 3px;
+  }
+}
+
+/* ==========================================================================
+   VaneGlider Signature Primitives
+   1. ReceiverCard Press Morph (ReceiverCard.kt: scale 0.97 + 20px -> 28px)
+   2. Tally Rail (StatusPanel.kt: 3px × 30px vertical amber bar)
+   ========================================================================== */
+
+.vg-card-interactive {
+  border-radius: 20px;
+  transition:
+    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    border-radius 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    background-color 180ms ease,
+    border-color 180ms ease;
+}
+
+.vg-card-interactive:active {
+  transform: scale(0.97);
+  border-radius: 28px;
+}
+
+.vg-tally-rail {
+  width: 3px;
+  height: 30px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  transition: background-color 200ms ease;
+}
+
+.vg-tally-rail[data-state="active"] {
+  background-color: var(--md-primary);
+}
+
+.vg-tally-rail[data-state="idle"] {
+  background-color: var(--md-outline-variant);
+}
+
+.vg-tally-rail[data-state="error"] {
+  background-color: var(--md-error);
+}
+
+@keyframes tallyPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.vg-tally-dot[data-live="true"] {
+  animation: tallyPulse 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .vg-card-interactive {
+    transition: background-color 120ms ease, border-color 120ms ease;
+  }
+  .vg-card-interactive:active {
+    transform: none;
+    border-radius: 20px;
+  }
+  .vg-tally-dot[data-live="true"] {
+    animation: none;
+  }
+}
