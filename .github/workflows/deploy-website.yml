@@ -9,6 +9,11 @@ on:
     paths:
       - 'website/**'
       - '.github/workflows/deploy-website.yml'
+  # A release created with GITHUB_TOKEN does not fire `release: published`, so
+  # chain off the Release workflow finishing instead.
+  workflow_run:
+    workflows: ['Release']
+    types: [completed]
   release:
     types: [published]
   schedule:
